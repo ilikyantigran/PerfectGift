@@ -1,0 +1,20 @@
+# OS
+.DS_Store
+
+# Claude local settings
+.claude/settings.local.json
+
+# Go
+bin/
+*.exe
+*.test
+*.out
+vendor/
+
+# Env / secrets
+.env
+*.local.env
+
+# IDE
+.idea/
+.vscode/

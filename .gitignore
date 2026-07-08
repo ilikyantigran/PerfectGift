@@ -14,6 +14,13 @@ vendor/
 # Vendored proto dependencies (regenerable build artifact, ~18MB/service)
 vendor-proto/
 
+# Generated protobuf / gRPC / gateway / swagger code.
+# Source of truth is the .proto; regenerate with `make generate` (buf) per service.
+*.pb.go
+*.pb.gw.go
+*.pb.validate.go
+*.swagger.json
+
 # Env / secrets
 .env
 *.local.env

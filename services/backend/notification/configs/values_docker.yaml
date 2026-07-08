@@ -1,0 +1,36 @@
+# Config for running in Docker/compose (service-name addresses).
+# Same keys as values_local.yaml; only the values differ.
+notification_service:
+  host: localhost
+  grpc_port: "8090"
+  http_port: "8091"
+
+postgres:
+  dsn: postgres://postgres:postgres@postgres:5432/notification?sslmode=disable
+
+nats:
+  url: nats://nats:4222
+  stream: EVENTS
+  durable: notification-worker
+  poll_completed_subject: events.poll.completed
+  ideas_ready_subject: events.surprise.ideas_ready
+
+dispatcher:
+  interval: 1s
+  batch: 100
+  max_attempts: 6
+  base_backoff: 2s
+  lease: 30s
+
+apns:
+  enabled: false
+  key_path: /run/secrets/apns_key.p8
+  key_id: ""
+  team_id: ""
+  topic: com.perfectgift.app
+  sandbox: false
+
+fcm:
+  enabled: false
+  credentials_path: /run/secrets/fcm.json
+  project_id: ""

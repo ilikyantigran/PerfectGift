@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package surprise.v1;
+
+option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/surprise/v1;surprisev1";
+
+// Local copy of the Surprise service gRPC contract, limited to the RPCs the API
+// Gateway calls. Derived from services/backend/surprise/SERVICE.md §3.1.
+
+// user_id is injected by the gateway from the JWT subject, not the body.
+message RequestGenerationRequest {
+  string user_id = 1;
+  string holiday_id = 2;
+  string budget_band = 3;
+  string preferences_text = 4;
+  string poll_id = 5;
+  string tier = 6;            // sonnet (default) | opus | haiku
+  string idempotency_key = 7; // forwarded from the Idempotency-Key header
+}
+
+message RequestGenerationResponse {
+  string request_id = 1;
+  string status = 2; // queued
+}
+
+message GetGenerationStatusRequest {
+  string request_id = 1;
+  string user_id = 2;
+}
+
+message GetGenerationStatusResponse {
+  string status = 1;   // queued | running | ready | failed
+  int32 progress = 2;
+}
+
+message Idea {
+  string id = 1;
+  string title = 2;
+  string why_it_fits = 3;
+  string rough_cost = 4;
+  string how_to = 5;
+  int32 rank = 6;
+}
+
+message GetIdeasRequest {
+  string request_id = 1;
+  string user_id = 2;
+}
+
+message GetIdeasResponse {
+  repeated Idea ideas = 1;
+}
+
+message RefineRequest {
+  string request_id = 1;
+  string user_id = 2;
+  string refinement = 3;
+}
+
+message RefineResponse {
+  string request_id = 1;
+  string status = 2; // queued
+}
+
+message SaveIdeaRequest {
+  string user_id = 1;
+  string idea_id = 2;
+}
+
+message SaveIdeaResponse {
+  bool ok = 1;
+}
+
+service Surprise {
+  rpc RequestGeneration(RequestGenerationRequest) returns (RequestGenerationResponse);
+  rpc GetGenerationStatus(GetGenerationStatusRequest) returns (GetGenerationStatusResponse);
+  rpc GetIdeas(GetIdeasRequest) returns (GetIdeasResponse);
+  rpc Refine(RefineRequest) returns (RefineResponse);
+  rpc SaveIdea(SaveIdeaRequest) returns (SaveIdeaResponse);
+}

@@ -1,0 +1,382 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "surprise/v1/surprise.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "SurpriseService"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/generations": {
+      "post": {
+        "summary": "RequestGeneration persists the request (idempotency-keyed) and enqueues a job,\nthen returns immediately. Maps to HTTP 202.",
+        "operationId": "SurpriseService_RequestGeneration",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1RequestGenerationResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1RequestGenerationRequest"
+            }
+          }
+        ],
+        "tags": [
+          "SurpriseService"
+        ]
+      }
+    },
+    "/v1/generations/{requestId}/ideas": {
+      "get": {
+        "summary": "GetIdeas returns the ranked ideas for a request. Empty until status is READY.",
+        "operationId": "SurpriseService_GetIdeas",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetIdeasResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "SurpriseService"
+        ]
+      }
+    },
+    "/v1/generations/{requestId}/refine": {
+      "post": {
+        "summary": "Refine regenerates with adjustments (a new job on the same request).",
+        "operationId": "SurpriseService_Refine",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1RefineResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SurpriseServiceRefineBody"
+            }
+          }
+        ],
+        "tags": [
+          "SurpriseService"
+        ]
+      }
+    },
+    "/v1/generations/{requestId}/status": {
+      "get": {
+        "summary": "GetGenerationStatus is a cheap poll target backed by Valkey.",
+        "operationId": "SurpriseService_GetGenerationStatus",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetGenerationStatusResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "SurpriseService"
+        ]
+      }
+    },
+    "/v1/ideas/save": {
+      "post": {
+        "summary": "SaveIdea favorites/saves an idea for the caller.",
+        "operationId": "SurpriseService_SaveIdea",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1SaveIdeaResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1SaveIdeaRequest"
+            }
+          }
+        ],
+        "tags": [
+          "SurpriseService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "SurpriseServiceRefineBody": {
+      "type": "object",
+      "properties": {
+        "refinement": {
+          "type": "string"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1GenerationStatus": {
+      "type": "string",
+      "enum": [
+        "GENERATION_STATUS_UNSPECIFIED",
+        "GENERATION_STATUS_QUEUED",
+        "GENERATION_STATUS_RUNNING",
+        "GENERATION_STATUS_READY",
+        "GENERATION_STATUS_FAILED"
+      ],
+      "default": "GENERATION_STATUS_UNSPECIFIED",
+      "description": "GenerationStatus is the lifecycle of a generation request."
+    },
+    "v1GetGenerationStatusResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/v1GenerationStatus"
+        },
+        "progress": {
+          "type": "integer",
+          "format": "int64",
+          "title": "0..100, best-effort"
+        }
+      }
+    },
+    "v1GetIdeasResponse": {
+      "type": "object",
+      "properties": {
+        "ideas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Idea"
+          }
+        }
+      }
+    },
+    "v1Idea": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "whyItFits": {
+          "type": "string"
+        },
+        "roughCost": {
+          "type": "string"
+        },
+        "howTo": {
+          "type": "string"
+        },
+        "rank": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "moderationStatus": {
+          "$ref": "#/definitions/v1ModerationStatus"
+        }
+      },
+      "description": "Idea is a single generated surprise idea (typed, not prose)."
+    },
+    "v1ModelTier": {
+      "type": "string",
+      "enum": [
+        "MODEL_TIER_UNSPECIFIED",
+        "MODEL_TIER_SONNET",
+        "MODEL_TIER_OPUS"
+      ],
+      "default": "MODEL_TIER_UNSPECIFIED",
+      "title": "ModelTier selects the generation model. Sonnet is the default; Opus is the\npremium/\"deep\" tier. (Haiku is used internally for moderation, not selectable here.)"
+    },
+    "v1ModerationStatus": {
+      "type": "string",
+      "enum": [
+        "MODERATION_STATUS_UNSPECIFIED",
+        "MODERATION_STATUS_APPROVED",
+        "MODERATION_STATUS_REJECTED"
+      ],
+      "default": "MODERATION_STATUS_UNSPECIFIED",
+      "description": "ModerationStatus is the outcome of the Haiku moderation pass on an idea."
+    },
+    "v1RefineResponse": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/v1GenerationStatus"
+        }
+      }
+    },
+    "v1RequestGenerationRequest": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "holidayId": {
+          "type": "string"
+        },
+        "budgetBand": {
+          "type": "string"
+        },
+        "preferencesText": {
+          "type": "string"
+        },
+        "pollId": {
+          "type": "string",
+          "title": "optional"
+        },
+        "tier": {
+          "$ref": "#/definitions/v1ModelTier",
+          "title": "optional; defaults to SONNET"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        }
+      }
+    },
+    "v1RequestGenerationResponse": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/v1GenerationStatus"
+        }
+      }
+    },
+    "v1SaveIdeaRequest": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "ideaId": {
+          "type": "string"
+        }
+      }
+    },
+    "v1SaveIdeaResponse": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

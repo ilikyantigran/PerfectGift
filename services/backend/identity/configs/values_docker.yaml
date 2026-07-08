@@ -1,0 +1,27 @@
+identity_service:
+  host: localhost
+  grpc_port: 8080
+  http_port: 8081
+
+postgres:
+  dsn: postgres://postgres:postgres@postgres:5432/perfectgift?sslmode=disable
+
+valkey:
+  address: valkey:6379
+
+token:
+  issuer: https://identity.perfectgift.local
+  audience: perfectgift
+  access_ttl_seconds: 900
+  refresh_ttl_seconds: 2592000
+
+oauth:
+  google_client_ids:
+    - perfectgift-ios.apps.googleusercontent.com
+    - perfectgift-android.apps.googleusercontent.com
+  apple_client_ids:
+    - com.perfectgift.app
+
+rate_limit:
+  max_attempts: 10
+  window_seconds: 300

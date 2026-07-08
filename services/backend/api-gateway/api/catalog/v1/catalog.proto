@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package catalog.v1;
+
+option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/catalog/v1;catalogv1";
+
+// Local copy of the Catalog service gRPC contract, limited to the RPCs the API
+// Gateway calls (client reference reads). Derived from
+// services/backend/catalog/SERVICE.md §3.1. SearchInspiration/UpsertInspiration are
+// internal-only (Surprise/admin) and are intentionally NOT exposed by the gateway.
+
+message Holiday {
+  string id = 1;
+  string name = 2;
+  string date_rule = 3; // fixed | relative
+  string region = 4;
+  repeated string tags = 5;
+  bool active = 6;
+}
+
+message ListHolidaysRequest {
+  string region = 1;
+  bool active = 2;
+  string on_or_after = 3;
+}
+
+message ListHolidaysResponse {
+  repeated Holiday holidays = 1;
+}
+
+message Category {
+  string id = 1;
+  string name = 2;
+  string kind = 3; // gift | date
+  string parent_id = 4;
+}
+
+message BudgetBand {
+  string id = 1;
+  string label = 2;
+  int64 min = 3;
+  int64 max = 4;
+  string currency = 5;
+}
+
+message GetCategoriesRequest {
+  string kind = 1;
+}
+
+message GetCategoriesResponse {
+  repeated Category categories = 1;
+  repeated BudgetBand budget_bands = 2;
+}
+
+service Catalog {
+  rpc ListHolidays(ListHolidaysRequest) returns (ListHolidaysResponse);
+  rpc GetCategories(GetCategoriesRequest) returns (GetCategoriesResponse);
+}

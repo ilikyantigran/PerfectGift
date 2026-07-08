@@ -1,0 +1,36 @@
+# Config for running locally with `go run` (host addresses).
+# Same keys as values_docker.yaml; only the values differ.
+notification_service:
+  host: localhost
+  grpc_port: "8090"
+  http_port: "8091"
+
+postgres:
+  dsn: postgres://postgres:postgres@localhost:5432/notification?sslmode=disable
+
+nats:
+  url: nats://localhost:4222
+  stream: EVENTS
+  durable: notification-worker
+  poll_completed_subject: events.poll.completed
+  ideas_ready_subject: events.surprise.ideas_ready
+
+dispatcher:
+  interval: 1s
+  batch: 100
+  max_attempts: 6
+  base_backoff: 2s
+  lease: 30s
+
+apns:
+  enabled: false
+  key_path: ""
+  key_id: ""
+  team_id: ""
+  topic: com.perfectgift.app
+  sandbox: true
+
+fcm:
+  enabled: false
+  credentials_path: ""
+  project_id: ""

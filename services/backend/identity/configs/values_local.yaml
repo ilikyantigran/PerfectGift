@@ -1,0 +1,31 @@
+identity_service:
+  host: localhost
+  grpc_port: 8080
+  http_port: 8081
+
+postgres:
+  dsn: postgres://postgres:postgres@127.0.0.1:5432/perfectgift?sslmode=disable
+
+valkey:
+  address: 127.0.0.1:6379
+
+# JWT / token settings. Signing keys are generated at boot and rotated in-process;
+# no private key material is stored in config.
+token:
+  issuer: https://identity.perfectgift.local
+  audience: perfectgift
+  access_ttl_seconds: 900       # 15 min
+  refresh_ttl_seconds: 2592000  # 30 days
+
+# OAuth provider expected audiences (client IDs). Values are non-secret identifiers.
+oauth:
+  google_client_ids:
+    - perfectgift-ios.apps.googleusercontent.com
+    - perfectgift-android.apps.googleusercontent.com
+  apple_client_ids:
+    - com.perfectgift.app
+
+# Brute-force protection for email/password sign-in.
+rate_limit:
+  max_attempts: 10   # per window, per email+ip key
+  window_seconds: 300

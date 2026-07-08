@@ -11,6 +11,9 @@ bin/
 *.out
 vendor/
 
+# Vendored proto dependencies (regenerable build artifact, ~18MB/service)
+vendor-proto/
+
 # Env / secrets
 .env
 *.local.env

@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package surprise.v1;
+
+import "google/api/annotations.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/surprise/pkg/api/surprise/v1;surprisev1";
+
+// SurpriseService orchestrates async LLM idea generation. Lifecycle RPCs on the
+// request path are fast (persist + enqueue); the slow LLM work runs in a worker
+// pool that consumes the GenerationRequested job off NATS.
+service SurpriseService {
+  // RequestGeneration persists the request (idempotency-keyed) and enqueues a job,
+  // then returns immediately. Maps to HTTP 202.
+  rpc RequestGeneration(RequestGenerationRequest) returns (RequestGenerationResponse) {
+    option (google.api.http) = {
+      post: "/v1/generations"
+      body: "*"
+    };
+  }
+
+  // GetGenerationStatus is a cheap poll target backed by Valkey.
+  rpc GetGenerationStatus(GetGenerationStatusRequest) returns (GetGenerationStatusResponse) {
+    option (google.api.http) = {
+      get: "/v1/generations/{request_id}/status"
+    };
+  }
+
+  // GetIdeas returns the ranked ideas for a request. Empty until status is READY.
+  rpc GetIdeas(GetIdeasRequest) returns (GetIdeasResponse) {
+    option (google.api.http) = {
+      get: "/v1/generations/{request_id}/ideas"
+    };
+  }
+
+  // SaveIdea favorites/saves an idea for the caller.
+  rpc SaveIdea(SaveIdeaRequest) returns (SaveIdeaResponse) {
+    option (google.api.http) = {
+      post: "/v1/ideas/save"
+      body: "*"
+    };
+  }
+
+  // Refine regenerates with adjustments (a new job on the same request).
+  rpc Refine(RefineRequest) returns (RefineResponse) {
+    option (google.api.http) = {
+      post: "/v1/generations/{request_id}/refine"
+      body: "*"
+    };
+  }
+}
+
+// GenerationStatus is the lifecycle of a generation request.
+enum GenerationStatus {
+  GENERATION_STATUS_UNSPECIFIED = 0;
+  GENERATION_STATUS_QUEUED = 1;
+  GENERATION_STATUS_RUNNING = 2;
+  GENERATION_STATUS_READY = 3;
+  GENERATION_STATUS_FAILED = 4;
+}
+
+// ModelTier selects the generation model. Sonnet is the default; Opus is the
+// premium/"deep" tier. (Haiku is used internally for moderation, not selectable here.)
+enum ModelTier {
+  MODEL_TIER_UNSPECIFIED = 0;
+  MODEL_TIER_SONNET = 1;
+  MODEL_TIER_OPUS = 2;
+}
+
+// ModerationStatus is the outcome of the Haiku moderation pass on an idea.
+enum ModerationStatus {
+  MODERATION_STATUS_UNSPECIFIED = 0;
+  MODERATION_STATUS_APPROVED = 1;
+  MODERATION_STATUS_REJECTED = 2;
+}
+
+message RequestGenerationRequest {
+  string user_id = 1 [(validate.rules).string.min_len = 1];
+  string holiday_id = 2 [(validate.rules).string.min_len = 1];
+  string budget_band = 3 [(validate.rules).string.min_len = 1];
+  string preferences_text = 4;
+  string poll_id = 5;                 // optional
+  ModelTier tier = 6;                 // optional; defaults to SONNET
+  string idempotency_key = 7 [(validate.rules).string.min_len = 1];
+}
+
+message RequestGenerationResponse {
+  string request_id = 1;
+  GenerationStatus status = 2;
+}
+
+message GetGenerationStatusRequest {
+  string request_id = 1 [(validate.rules).string.min_len = 1];
+}
+
+message GetGenerationStatusResponse {
+  GenerationStatus status = 1;
+  uint32 progress = 2;                // 0..100, best-effort
+}
+
+message GetIdeasRequest {
+  string request_id = 1 [(validate.rules).string.min_len = 1];
+}
+
+// Idea is a single generated surprise idea (typed, not prose).
+message Idea {
+  string id = 1;
+  string request_id = 2;
+  string title = 3;
+  string why_it_fits = 4;
+  string rough_cost = 5;
+  string how_to = 6;
+  uint32 rank = 7;
+  ModerationStatus moderation_status = 8;
+}
+
+message GetIdeasResponse {
+  repeated Idea ideas = 1;
+}
+
+message SaveIdeaRequest {
+  string user_id = 1 [(validate.rules).string.min_len = 1];
+  string idea_id = 2 [(validate.rules).string.min_len = 1];
+}
+
+message SaveIdeaResponse {
+  bool ok = 1;
+}
+
+message RefineRequest {
+  string request_id = 1 [(validate.rules).string.min_len = 1];
+  string refinement = 2 [(validate.rules).string.min_len = 1];
+}
+
+message RefineResponse {
+  string request_id = 1;
+  GenerationStatus status = 2;
+}

@@ -1,0 +1,27 @@
+# Config for running in Docker/compose (service-name addresses).
+# Same keys as values_local.yaml; only the values differ.
+catalog_service:
+  host: localhost # in-container gateway dials its own gRPC server
+  grpc_port: "9096"
+  http_port: "8096"
+
+postgres:
+  dsn: postgres://postgres:postgres@postgres:5432/catalog?sslmode=disable
+
+valkey:
+  address: valkey:6379
+
+# The embedding model + dimension MUST match what the Surprise service embeds
+# queries with. Leave `endpoint` empty to use the built-in deterministic fake
+# embedder (lets the service boot without an external embedding API). The API key
+# is read from the environment variable named by `api_key_env`, never stored here.
+embedding:
+  model: text-embedding-3-small
+  dimension: 1536
+  endpoint: ""
+  api_key_env: EMBEDDING_API_KEY
+
+catalog:
+  reference_cache_ttl_seconds: 3600
+  default_top_k: 8
+  max_top_k: 50

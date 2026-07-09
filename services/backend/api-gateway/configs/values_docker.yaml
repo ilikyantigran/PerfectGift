@@ -1,0 +1,30 @@
+# Config for running in Docker/compose (service-name addresses).
+# Same keys as values_local.yaml; only the values differ.
+gateway_service:
+  host: 0.0.0.0
+  http_port: "8080"
+
+# gRPC addresses of the five downstream domain services (compose service names).
+downstreams:
+  identity: identity:9101
+  poll: poll:9102
+  surprise: surprise:9103
+  catalog: catalog:9104
+  notification: notification:9105
+
+auth:
+  jwks_url: http://identity:8081/.well-known/jwks.json
+  issuer: https://identity.perfectgift.local
+  audience: perfectgift
+  jwks_refresh: 10m
+
+cors:
+  poll_origins:
+    - https://poll.perfectgift.app
+
+ratelimit:
+  global_per_min: 0
+  per_ip_per_min: 600
+  per_user_per_min: 120
+  refresh_per_min: 10
+  valkey_addr: ""

@@ -1,0 +1,17 @@
+syntax = "proto3";
+package catalog.v1;
+option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/surprise/pkg/api/catalog/v1;catalogv1";
+
+// Local copy of the shape Surprise calls OUT to (see catalog/SERVICE.md SearchInspiration).
+service CatalogService {
+  rpc SearchInspiration(SearchInspirationRequest) returns (SearchInspirationResponse);
+}
+message SearchInspirationRequest {
+  string query_text = 1;
+  repeated float query_embedding = 2;
+  string category = 3;
+  string budget = 4;
+  uint32 top_k = 5;
+}
+message Snippet { string id = 1; string title = 2; string body = 3; }
+message SearchInspirationResponse { repeated Snippet snippets = 1; }

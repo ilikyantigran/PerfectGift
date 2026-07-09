@@ -1,0 +1,12 @@
+syntax = "proto3";
+package poll.v1;
+option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/surprise/pkg/api/poll/v1;pollv1";
+
+// Local copy of the shape Surprise calls OUT to (see poll/SERVICE.md GetResponses).
+service PollService {
+  rpc GetResponses(GetResponsesRequest) returns (GetResponsesResponse);
+}
+message GetResponsesRequest { string poll_id = 1; }
+message Answer { string question = 1; string answer = 2; }
+message Response { string id = 1; repeated Answer answers = 2; }
+message GetResponsesResponse { repeated Response responses = 1; }

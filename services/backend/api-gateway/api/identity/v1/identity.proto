@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package identity.v1;
+
+option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/identity/v1;identityv1";
+
+// Local copy of the Identity service gRPC contract, limited to the RPCs the API
+// Gateway calls. Derived from services/backend/identity/SERVICE.md §3.1.
+// Client-side only: no google.api.http annotations (the gateway calls these by gRPC).
+
+message User {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
+  string status = 4;
+}
+
+message SignInRequest {
+  string provider = 1; // apple | google | email
+  string id_token = 2; // Apple/Google ID token (social)
+  string email = 3;    // email/password fallback
+  string password = 4;
+}
+
+message SignInResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_in = 3;
+  User user = 4;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_in = 3;
+}
+
+message RevokeRequest {
+  string refresh_token = 1;
+  string session_id = 2;
+}
+
+message RevokeResponse {}
+
+// Subject is taken from the validated JWT by the gateway, never the request body.
+message GetMeRequest {
+  string user_id = 1;
+}
+
+message GetMeResponse {
+  User user = 1;
+}
+
+service Identity {
+  rpc SignIn(SignInRequest) returns (SignInResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc Revoke(RevokeRequest) returns (RevokeResponse);
+  rpc GetMe(GetMeRequest) returns (GetMeResponse);
+}

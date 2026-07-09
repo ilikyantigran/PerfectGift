@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package notification.v1;
+
+option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/notification/v1;notificationv1";
+
+// Local copy of the Notification service gRPC contract, limited to the RPCs the API
+// Gateway calls. Derived from services/backend/notification/SERVICE.md §3.1.
+
+// user_id is injected by the gateway from the JWT subject, not the body.
+message RegisterDeviceRequest {
+  string user_id = 1;
+  string platform = 2; // ios | android
+  string push_token = 3;
+  string app_version = 4;
+}
+
+message RegisterDeviceResponse {
+  string device_id = 1;
+}
+
+service Notification {
+  rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceResponse);
+}

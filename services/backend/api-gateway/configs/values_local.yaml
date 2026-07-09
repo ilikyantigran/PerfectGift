@@ -1,0 +1,35 @@
+# Config for running locally with `go run` (host addresses).
+# Same keys as values_docker.yaml; only the values differ.
+gateway_service:
+  host: localhost
+  http_port: "8080"
+
+# gRPC addresses of the five downstream domain services.
+downstreams:
+  identity: localhost:9101
+  poll: localhost:9102
+  surprise: localhost:9103
+  catalog: localhost:9104
+  notification: localhost:9105
+
+# Local JWT validation against Identity's JWKS (no per-request call on the hot path).
+auth:
+  jwks_url: http://localhost:9101/.well-known/jwks.json
+  issuer: https://identity.perfectgift.local
+  audience: perfectgift
+  jwks_refresh: 10m
+
+# CORS is allowed ONLY for the Poll Web Page origin, on the anonymous poll routes.
+cors:
+  poll_origins:
+    - http://localhost:5173
+    - https://poll.perfectgift.app
+
+# Rate-limit budgets (requests per minute). 0 disables a given limiter.
+# valkey_addr is optional; empty means in-process counters (default).
+ratelimit:
+  global_per_min: 0
+  per_ip_per_min: 600
+  per_user_per_min: 120
+  refresh_per_min: 10
+  valkey_addr: ""

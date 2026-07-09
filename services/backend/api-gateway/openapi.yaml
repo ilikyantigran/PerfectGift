@@ -1,0 +1,494 @@
+openapi: 3.0.3
+info:
+  title: PerfectGift API Gateway
+  version: "1.0.0"
+  description: >
+    The single public HTTP/JSON edge of PerfectGift. Every client (iOS, Android, the
+    Poll Web Page) talks only to this gateway, which validates Identity-issued JWTs
+    locally (via JWKS) and translates REST into internal gRPC calls to the five domain
+    services. Anonymous Subject routes under /v1/polls/token carry an opaque link
+    token and are NOT JWT-validated. Generation is asynchronous: POST /v1/generations
+    returns 202 with a requestId; clients poll GET /v1/generations/{id}.
+servers:
+  - url: https://api.perfectgift.app
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+tags:
+  - name: auth
+  - name: polls
+  - name: polls-anonymous
+  - name: generations
+  - name: catalog
+  - name: devices
+
+paths:
+  /v1/auth/signin:
+    post:
+      tags: [auth]
+      summary: Sign in with Apple/Google/email
+      operationId: signIn
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignInRequest' }
+      responses:
+        '200':
+          description: Token pair + user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate a refresh token into a new access token (strictly rate-limited)
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: New token pair
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '429': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/auth/revoke:
+    post:
+      tags: [auth]
+      summary: Revoke a session / sign out
+      operationId: revoke
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RevokeRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/OK' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/me:
+    get:
+      tags: [auth]
+      summary: Current user profile
+      operationId: getMe
+      responses:
+        '200':
+          description: The authenticated user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/polls:
+    post:
+      tags: [polls]
+      summary: Create a poll and get a shareable link (owner = JWT subject)
+      operationId: createPoll
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePollRequest' }
+      responses:
+        '201':
+          description: Poll created; raw link token returned once
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreatePollResponse' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/polls/{id}/responses:
+    get:
+      tags: [polls]
+      summary: Owner reads the Subject's answers (owner-scoped)
+      operationId: getResponses
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Responses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  responses:
+                    type: array
+                    items: { $ref: '#/components/schemas/PollResponse' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/polls/token/{t}:
+    get:
+      tags: [polls-anonymous]
+      summary: Subject fetches a poll by opaque link token (no auth, CORS-enabled)
+      operationId: getPollByToken
+      security: []
+      parameters:
+        - { name: t, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Poll questions (no owner data)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PollByToken' }
+        '404': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/polls/token/{t}/responses:
+    post:
+      tags: [polls-anonymous]
+      summary: Subject submits answers (no auth, CORS-enabled, rate-limited)
+      operationId: submitResponse
+      security: []
+      parameters:
+        - { name: t, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubmitResponseRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/OK' }
+        '429': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/generations:
+    post:
+      tags: [generations]
+      summary: Start a generation (async → 202 with requestId; never blocks on the LLM)
+      operationId: requestGeneration
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string }
+          description: Forwarded to Surprise to dedupe duplicate submits.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequestGenerationRequest' }
+      responses:
+        '202':
+          description: Accepted; poll GET /v1/generations/{id} for status/ideas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationAccepted' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/generations/{id}:
+    get:
+      tags: [generations]
+      summary: Poll generation status; ideas are included once status is "ready" (BFF aggregation)
+      operationId: getGeneration
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Status (+ ideas when ready)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationStatus' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/generations/{id}/refine:
+    post:
+      tags: [generations]
+      summary: Regenerate/refine ideas (async → 202)
+      operationId: refine
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refinement: { type: string }
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationAccepted' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/ideas/{id}/save:
+    post:
+      tags: [generations]
+      summary: Save/favorite an idea
+      operationId: saveIdea
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/OK' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/holidays:
+    get:
+      tags: [catalog]
+      summary: Reference — holidays
+      operationId: listHolidays
+      parameters:
+        - { name: region, in: query, required: false, schema: { type: string } }
+        - { name: active, in: query, required: false, schema: { type: boolean } }
+        - { name: on_or_after, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Holidays
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  holidays:
+                    type: array
+                    items: { $ref: '#/components/schemas/Holiday' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/categories:
+    get:
+      tags: [catalog]
+      summary: Reference — categories and budget bands
+      operationId: getCategories
+      parameters:
+        - { name: kind, in: query, required: false, schema: { type: string, enum: [gift, date] } }
+      responses:
+        '200':
+          description: Categories + budget bands
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories:
+                    type: array
+                    items: { $ref: '#/components/schemas/Category' }
+                  budget_bands:
+                    type: array
+                    items: { $ref: '#/components/schemas/BudgetBand' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /v1/devices:
+    post:
+      tags: [devices]
+      summary: Register an APNs/FCM device token (user = JWT subject)
+      operationId: registerDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterDeviceRequest' }
+      responses:
+        '201':
+          description: Device registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id: { type: string }
+        default: { $ref: '#/components/responses/Error' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Identity-issued access token, verified locally via JWKS.
+
+  responses:
+    OK:
+      description: Success
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              ok: { type: boolean }
+    Error:
+      description: Uniform error envelope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: not_found }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        display_name: { type: string }
+        status: { type: string }
+
+    SignInRequest:
+      type: object
+      properties:
+        provider: { type: string, enum: [apple, google, email] }
+        id_token: { type: string }
+        email: { type: string }
+        password: { type: string }
+
+    TokenPair:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer, format: int64 }
+        user: { $ref: '#/components/schemas/User' }
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+
+    RevokeRequest:
+      type: object
+      properties:
+        refresh_token: { type: string }
+        session_id: { type: string }
+
+    Question:
+      type: object
+      properties:
+        id: { type: string }
+        text: { type: string }
+        kind: { type: string }
+        options: { type: array, items: { type: string } }
+
+    Answer:
+      type: object
+      properties:
+        question_id: { type: string }
+        value: { type: string }
+        values: { type: array, items: { type: string } }
+
+    CreatePollRequest:
+      type: object
+      properties:
+        title: { type: string }
+        questions: { type: array, items: { $ref: '#/components/schemas/Question' } }
+        surprise_request_id: { type: string }
+        ttl_seconds: { type: integer, format: int64 }
+
+    CreatePollResponse:
+      type: object
+      properties:
+        poll_id: { type: string }
+        link_token: { type: string }
+        link_url: { type: string }
+        expires_at: { type: string }
+
+    PollByToken:
+      type: object
+      properties:
+        poll_id: { type: string }
+        title: { type: string }
+        questions: { type: array, items: { $ref: '#/components/schemas/Question' } }
+
+    SubmitResponseRequest:
+      type: object
+      properties:
+        answers: { type: array, items: { $ref: '#/components/schemas/Answer' } }
+
+    PollResponse:
+      type: object
+      properties:
+        id: { type: string }
+        answers: { type: array, items: { $ref: '#/components/schemas/Answer' } }
+        submitted_at: { type: string }
+
+    RequestGenerationRequest:
+      type: object
+      properties:
+        holiday_id: { type: string }
+        budget_band: { type: string }
+        preferences_text: { type: string }
+        poll_id: { type: string }
+        tier: { type: string, enum: [sonnet, opus, haiku] }
+
+    GenerationAccepted:
+      type: object
+      properties:
+        request_id: { type: string }
+        status: { type: string, example: queued }
+
+    Idea:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        why_it_fits: { type: string }
+        rough_cost: { type: string }
+        how_to: { type: string }
+        rank: { type: integer, format: int32 }
+
+    GenerationStatus:
+      type: object
+      properties:
+        request_id: { type: string }
+        status: { type: string, enum: [queued, running, ready, failed] }
+        progress: { type: integer, format: int32 }
+        ideas: { type: array, items: { $ref: '#/components/schemas/Idea' } }
+
+    Holiday:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        date_rule: { type: string }
+        region: { type: string }
+        tags: { type: array, items: { type: string } }
+        active: { type: boolean }
+
+    Category:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string }
+        parent_id: { type: string }
+
+    BudgetBand:
+      type: object
+      properties:
+        id: { type: string }
+        label: { type: string }
+        min: { type: integer, format: int64 }
+        max: { type: integer, format: int64 }
+        currency: { type: string }
+
+    RegisterDeviceRequest:
+      type: object
+      properties:
+        platform: { type: string, enum: [ios, android] }
+        push_token: { type: string }
+        app_version: { type: string }

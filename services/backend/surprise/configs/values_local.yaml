@@ -1,0 +1,50 @@
+# Config for running locally with `go run` (host addresses).
+# Same keys as values_docker.yaml; only the values differ.
+# Secrets are NOT here: ANTHROPIC_API_KEY comes from the environment.
+surprise_service:
+  host: localhost
+  grpc_port: "9090"
+  http_port: "8080"
+
+postgres:
+  dsn: postgres://postgres:postgres@localhost:5432/surprise?sslmode=disable
+
+valkey:
+  address: 127.0.0.1:6379
+
+nats:
+  url: nats://localhost:4222
+  stream: SURPRISE
+  request_subject: surprise.generation.requested
+  ready_subject: surprise.ideas.ready
+  durable_name: surprise-workers
+
+anthropic:
+  base_url: https://api.anthropic.com
+  version: "2023-06-01"
+  sonnet_model: claude-sonnet-5
+  opus_model: claude-opus-4-8
+  haiku_model: claude-haiku-4-5
+  embedding_model: ""
+  embedding_dim: 1536
+  max_tokens: 2048
+
+downstreams:
+  poll: localhost:9101
+  catalog: localhost:9102
+
+worker:
+  pool_size: 4
+  ideas_wanted: 5
+
+resilience:
+  llm_timeout: 30s
+  retry_max_attempts: 3
+  retry_base_backoff: 200ms
+  breaker_max_failures: 5
+  breaker_open_duration: 30s
+
+cache:
+  status_ttl: 1h
+  idempotency_ttl: 24h
+  llm_ttl: 24h

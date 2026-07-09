@@ -1,0 +1,169 @@
+:root {
+  --bg: #f6f5f3;
+  --card: #ffffff;
+  --ink: #1f2430;
+  --muted: #6b7280;
+  --accent: #c8476b;
+  --accent-ink: #ffffff;
+  --border: #e5e3df;
+  --invalid: #c0392b;
+  --radius: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --card: #1e2127;
+    --ink: #eceef2;
+    --muted: #9aa1ad;
+    --accent: #e06a8a;
+    --accent-ink: #14161a;
+    --border: #2c3038;
+    --invalid: #ff8a80;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.screen {
+  min-height: 100dvh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px 48px;
+}
+
+.card {
+  width: 100%;
+  max-width: 34rem;
+  margin-top: 6vh;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 20px 28px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+h1 {
+  font-size: 1.4rem;
+  line-height: 1.3;
+  margin: 0 0 12px;
+}
+
+.poll__title {
+  margin-bottom: 20px;
+}
+
+.muted {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.question {
+  border: none;
+  padding: 0;
+  margin: 0 0 24px;
+}
+
+.question__prompt {
+  font-weight: 600;
+  padding: 0;
+  margin-bottom: 10px;
+  display: block;
+}
+
+.question__required {
+  color: var(--accent);
+}
+
+.question__text {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.question__text:focus-visible,
+.submit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.question__options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.option input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.question--invalid .question__text,
+.question--invalid .option {
+  border-color: var(--invalid);
+}
+
+.question__error,
+.form__error {
+  color: var(--invalid);
+  font-size: 0.9rem;
+  margin: 8px 0 0;
+}
+
+.submit {
+  width: 100%;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: none;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.checkmark {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 30px;
+  line-height: 56px;
+  text-align: center;
+  margin-bottom: 16px;
+}

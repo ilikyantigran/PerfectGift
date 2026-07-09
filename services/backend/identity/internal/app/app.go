@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	identityv1 "github.com/ilikyantigran/PerfectGift/services/backend/identity/pkg/api/identity/v1"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/domain/postgres"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/domain/valkey"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/infra/config"
@@ -17,6 +16,7 @@ import (
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/infra/telemetry"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/oauth"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/token"
+	identityv1 "github.com/ilikyantigran/PerfectGift/services/backend/identity/pkg/api/identity/v1"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -58,7 +58,7 @@ func (a *App) Run(ctx context.Context) error {
 		return fmt.Errorf("postgres: %w", err)
 	}
 	defer pg.Close()
-	if err := postgres.MigratePool(ctx, pg); err != nil {
+	if err := pg.Migrate(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
 

@@ -17,9 +17,9 @@ import (
 // Store is the Valkey-backed implementation of the app's Sessions and
 // RateLimiter interfaces.
 type Store struct {
-	client        valkey.Client
-	rlMax         int
-	rlWindow      time.Duration
+	client   valkey.Client
+	rlMax    int
+	rlWindow time.Duration
 }
 
 // NewStore connects to Valkey. rlMax/rlWindow configure the login rate limiter.

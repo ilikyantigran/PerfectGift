@@ -81,7 +81,7 @@ func (r *fakeRepo) GetPollByID(_ context.Context, pollID string) (model.Poll, er
 	defer r.mu.Unlock()
 	p, ok := r.polls[pollID]
 	if !ok {
-		return model.Poll{}, ErrNotFound
+		return model.Poll{}, ports.ErrNotFound
 	}
 	return p, nil
 }

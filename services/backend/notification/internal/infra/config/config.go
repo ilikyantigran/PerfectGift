@@ -45,12 +45,12 @@ type Config struct {
 
 	// APNs (iOS). Token-based auth (.p8 key). Paths/secrets come from env in prod.
 	APNs struct {
-		Enabled  bool   `yaml:"enabled"`
-		KeyPath  string `yaml:"key_path"`
-		KeyID    string `yaml:"key_id"`
-		TeamID   string `yaml:"team_id"`
-		Topic    string `yaml:"topic"` // app bundle id
-		Sandbox  bool   `yaml:"sandbox"`
+		Enabled bool   `yaml:"enabled"`
+		KeyPath string `yaml:"key_path"`
+		KeyID   string `yaml:"key_id"`
+		TeamID  string `yaml:"team_id"`
+		Topic   string `yaml:"topic"` // app bundle id
+		Sandbox bool   `yaml:"sandbox"`
 	} `yaml:"apns"`
 
 	// FCM (Android).

@@ -105,9 +105,14 @@ func TestPipelineCacheHitSkipsLLM(t *testing.T) {
 
 func TestPipelineDegradesWhenGroundingUnavailable(t *testing.T) {
 	h := newHarness(t, 3)
-	r := seedRequest(t, h.store, "req3")
-	r.PollID = "poll-x"
-	_ = h.store.MarkRefinement(context.Background(), "req3", "") // no-op to keep pollID via re-seed below
+	// Seed a request that DOES reference a poll, so the poll path is exercised.
+	if err := h.store.CreateRequest(context.Background(), &domain.Request{
+		ID: "req3", UserID: "u1", HolidayID: "valentine", BudgetBand: "mid",
+		PreferencesText: "cozy", PollID: "poll-x", IdempotencyKey: "idem-req3",
+		Status: domain.StatusQueued, Tier: domain.TierSonnet,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
 	// Force grounding sources to error; pipeline must still succeed.
 	h.poll.Err = errors.New("poll down")
 	h.catalog.Err = errors.New("catalog down")

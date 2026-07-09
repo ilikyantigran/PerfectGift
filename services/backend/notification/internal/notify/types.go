@@ -72,10 +72,10 @@ type Outbox struct {
 // PollCompletedEvent is emitted by the Poll service when the Subject finishes.
 // Shape per poll/SERVICE.md §3.2.
 type PollCompletedEvent struct {
-	PollID             string    `json:"poll_id"`
-	SurpriseRequestID  string    `json:"surprise_request_id,omitempty"`
-	OwnerUserID        string    `json:"owner_user_id"`
-	CompletedAt        time.Time `json:"completed_at"`
+	PollID            string    `json:"poll_id"`
+	SurpriseRequestID string    `json:"surprise_request_id,omitempty"`
+	OwnerUserID       string    `json:"owner_user_id"`
+	CompletedAt       time.Time `json:"completed_at"`
 }
 
 // IdeasReadyEvent is emitted by the Surprise service when generation finishes.

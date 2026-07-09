@@ -2,7 +2,6 @@ package rest
 
 import (
 	"net/http"
-	"strings"
 
 	pollv1 "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/poll/v1"
 )
@@ -124,11 +123,6 @@ type getPollByTokenResponse struct {
 // GET /v1/polls/token/{t} → Poll.GetPollByToken (anonymous; opaque token; NOT JWT)
 func (s *Server) handleGetPollByToken(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("t")
-	if token == "" {
-		// Matched via the literal `/v1/polls/token/responses` disambiguator pattern,
-		// which has no {t} wildcard: recover the token from the trailing segment.
-		token = strings.TrimPrefix(r.URL.Path, "/v1/polls/token/")
-	}
 	ctx, cancel := reqCtx(r)
 	defer cancel()
 

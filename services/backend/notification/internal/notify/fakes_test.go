@@ -224,9 +224,9 @@ func (p *fakePusher) countFor(token string) int {
 
 // fakeMessage is a bus Message for consumer tests.
 type fakeMessage struct {
-	data    []byte
-	acked   bool
-	nakked  bool
+	data   []byte
+	acked  bool
+	nakked bool
 }
 
 func (m *fakeMessage) Data() []byte { return m.data }

@@ -9,6 +9,7 @@ package rest
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/internal/auth"
 	"github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/internal/ratelimit"
@@ -80,22 +81,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/auth/revoke", s.requireJWT(s.handleRevoke))
 	mux.HandleFunc("GET /v1/me", s.requireJWT(s.handleGetMe))
 
-	// Disambiguator (registered first): `GET /v1/polls/token/{t}` and
-	// `GET /v1/polls/{id}/responses` both match the single path
-	// `/v1/polls/token/responses`; stdlib ServeMux needs a more-specific pattern for
-	// that exact overlap, present at registration time. An opaque token literally
-	// equal to "responses" is treated as a Subject poll fetch (the far likelier intent).
-	mux.Handle("GET /v1/polls/token/responses", s.cors(http.HandlerFunc(s.handleGetPollByToken)))
-
 	// --- Polls (owner-scoped, JWT) ---
 	mux.HandleFunc("POST /v1/polls", s.requireJWT(s.handleCreatePoll))
 	mux.HandleFunc("GET /v1/polls/{id}/responses", s.requireJWT(s.handleGetResponses))
-
-	// --- Polls (anonymous Subject, opaque token, CORS-enabled, NOT JWT) ---
-	mux.Handle("GET /v1/polls/token/{t}", s.cors(http.HandlerFunc(s.handleGetPollByToken)))
-	mux.Handle("OPTIONS /v1/polls/token/{t}", s.cors(http.HandlerFunc(s.handleCORSPreflight)))
-	mux.Handle("POST /v1/polls/token/{t}/responses", s.cors(http.HandlerFunc(s.handleSubmitResponse)))
-	mux.Handle("OPTIONS /v1/polls/token/{t}/responses", s.cors(http.HandlerFunc(s.handleCORSPreflight)))
 
 	// --- Generations (Surprise) ---
 	mux.HandleFunc("POST /v1/generations", s.requireJWT(s.handleRequestGeneration))
@@ -115,5 +103,32 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	return s.recoverMW(s.globalLimitMW(mux))
+	// The anonymous Subject routes live under the fixed prefix `/v1/polls/token/`.
+	// They are kept in a SEPARATE sub-mux and dispatched by prefix (see routeRoot)
+	// rather than registered as siblings of `GET /v1/polls/{id}/responses`: stdlib
+	// ServeMux cannot disambiguate `GET /v1/polls/token/{t}` from
+	// `GET /v1/polls/{id}/responses` (both match `/v1/polls/token/responses`). These
+	// are the only CORS-enabled routes (SERVICE.md §5) and carry an opaque token, NOT
+	// a JWT.
+	tokenMux := http.NewServeMux()
+	tokenMux.Handle("GET /v1/polls/token/{t}", s.cors(http.HandlerFunc(s.handleGetPollByToken)))
+	tokenMux.Handle("OPTIONS /v1/polls/token/{t}", s.cors(http.HandlerFunc(s.handleCORSPreflight)))
+	tokenMux.Handle("POST /v1/polls/token/{t}/responses", s.cors(http.HandlerFunc(s.handleSubmitResponse)))
+	tokenMux.Handle("OPTIONS /v1/polls/token/{t}/responses", s.cors(http.HandlerFunc(s.handleCORSPreflight)))
+
+	root := routeRoot(mux, tokenMux)
+	return s.recoverMW(s.globalLimitMW(root))
+}
+
+// routeRoot sends anonymous poll-token traffic to tokenMux and everything else to
+// the main mux, sidestepping ServeMux's inability to disambiguate the token routes
+// from the owner `GET /v1/polls/{id}/responses` route.
+func routeRoot(main, tokenMux http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/polls/token/") {
+			tokenMux.ServeHTTP(w, r)
+			return
+		}
+		main.ServeHTTP(w, r)
+	})
 }

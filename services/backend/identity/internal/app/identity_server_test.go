@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	identityv1 "github.com/ilikyantigran/PerfectGift/services/backend/identity/pkg/api/identity/v1"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/oauth"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/token"
+	identityv1 "github.com/ilikyantigran/PerfectGift/services/backend/identity/pkg/api/identity/v1"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"

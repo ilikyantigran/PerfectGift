@@ -1,7 +1,7 @@
 identity_service:
   host: localhost
-  grpc_port: 8080
-  http_port: 8081
+  grpc_port: "9090"
+  http_port: "8080"
 
 postgres:
   dsn: postgres://postgres:postgres@postgres:5432/perfectgift?sslmode=disable

@@ -2,7 +2,7 @@
 # Same keys as values_local.yaml; only the values differ.
 # Secrets are NOT here: ANTHROPIC_API_KEY comes from the environment.
 surprise_service:
-  host: surprise-service
+  host: localhost
   grpc_port: "9090"
   http_port: "8080"
 
@@ -30,8 +30,8 @@ anthropic:
   max_tokens: 2048
 
 downstreams:
-  poll: poll-service:9090
-  catalog: catalog-service:9090
+  poll: poll:9090
+  catalog: catalog:9090
 
 worker:
   pool_size: 4

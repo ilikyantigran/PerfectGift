@@ -1,0 +1,4 @@
+# Not needed to compile (generated code already lives in pkg/); regenerated via `make generate`.
+vendor-proto/
+# Docs / planning artifacts
+*.md

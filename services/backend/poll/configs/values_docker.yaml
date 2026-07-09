@@ -2,8 +2,8 @@
 # Same keys as values_local.yaml; only the values differ.
 poll_service:
   host: localhost          # in-container gateway dials its own gRPC server
-  grpc_port: "8080"
-  http_port: "8081"
+  grpc_port: "9090"
+  http_port: "8080"
 
 postgres:
   dsn: postgres://postgres:postgres@postgres:5432/poll?sslmode=disable

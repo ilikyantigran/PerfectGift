@@ -1,0 +1,133 @@
+# PerfectGift — local backend stack.
+#
+#   docker compose up --build        # build all images + start everything
+#   docker compose ps                # see health
+#   docker compose logs -f gateway   # tail a service
+#   docker compose down -v           # stop + wipe data
+#
+# Public entrypoint: the gateway on http://localhost:8080 (Swagger at /swagger/).
+# Each service also exposes its own HTTP (Swagger + /metrics) on 8081-8085.
+#
+# Internally every domain service listens on gRPC :9090 and HTTP :8080 and is
+# reachable by its compose service name (identity, poll, surprise, catalog,
+# notification). Infra is reachable as postgres / valkey / nats.
+
+name: perfectgift
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks: [perfectgift]
+
+services:
+  # ---------------------------------------------------------------- infra ---
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
+      # catalog + notification don't self-migrate — their schema is applied by the init script.
+      - ./services/backend/catalog/migrations/0001_init.sql:/seed/catalog.sql:ro
+      - ./services/backend/notification/migrations/0001_init.sql:/seed/notification.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [perfectgift]
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [perfectgift]
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-m", "8222"]        # JetStream on, HTTP monitoring on :8222
+    ports:
+      - "4222:4222"                        # client
+      - "8222:8222"                        # monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8222/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [perfectgift]
+
+  # ------------------------------------------------------------- services ---
+  identity:
+    <<: *service-defaults
+    build: ./services/backend/identity
+    ports: ["8081:8080"]                   # host:container (HTTP/Swagger/metrics)
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey:   { condition: service_healthy }
+
+  poll:
+    <<: *service-defaults
+    build: ./services/backend/poll
+    ports: ["8082:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey:   { condition: service_healthy }
+      nats:     { condition: service_healthy }
+
+  surprise:
+    <<: *service-defaults
+    build: ./services/backend/surprise
+    ports: ["8083:8080"]
+    environment:
+      # Generation calls Anthropic. Without a real key the service still boots,
+      # but generation jobs fail at the LLM call. Set it in .env (see .env.example).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey:   { condition: service_healthy }
+      nats:     { condition: service_healthy }
+
+  catalog:
+    <<: *service-defaults
+    build: ./services/backend/catalog
+    ports: ["8084:8080"]
+    environment:
+      # Empty endpoint in config → deterministic fake embedder, so no key is needed.
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey:   { condition: service_healthy }
+
+  notification:
+    <<: *service-defaults
+    build: ./services/backend/notification
+    ports: ["8085:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats:     { condition: service_healthy }
+
+  gateway:
+    <<: *service-defaults
+    build: ./services/backend/api-gateway
+    ports: ["8080:8080"]                   # <-- public API entrypoint
+    depends_on:
+      identity:     { condition: service_started }
+      poll:         { condition: service_started }
+      surprise:     { condition: service_started }
+      catalog:      { condition: service_started }
+      notification: { condition: service_started }
+
+volumes:
+  pgdata:
+
+networks:
+  perfectgift:
+    driver: bridge

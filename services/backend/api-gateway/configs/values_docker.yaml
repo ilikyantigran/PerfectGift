@@ -6,14 +6,14 @@ gateway_service:
 
 # gRPC addresses of the five downstream domain services (compose service names).
 downstreams:
-  identity: identity:9101
-  poll: poll:9102
-  surprise: surprise:9103
-  catalog: catalog:9104
-  notification: notification:9105
+  identity: identity:9090
+  poll: poll:9090
+  surprise: surprise:9090
+  catalog: catalog:9090
+  notification: notification:9090
 
 auth:
-  jwks_url: http://identity:8081/.well-known/jwks.json
+  jwks_url: http://identity:8080/.well-known/jwks.json
   issuer: https://identity.perfectgift.local
   audience: perfectgift
   jwks_refresh: 10m

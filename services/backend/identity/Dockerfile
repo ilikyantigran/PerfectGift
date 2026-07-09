@@ -11,7 +11,8 @@ FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 COPY --from=build /bin/app /app/app
 COPY --from=build /src/configs /app/configs
-COPY --from=build /src/migrations /app/migrations
+# Migrations are embedded in the binary (see internal/domain/postgres/migrate.go)
+# and applied automatically at startup.
 ENV CONFIG_PATH=/app/configs/values_docker.yaml
 EXPOSE 8080 8081
 ENTRYPOINT ["/app/app"]

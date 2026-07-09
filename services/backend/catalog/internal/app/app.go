@@ -7,8 +7,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
+	"github.com/ilikyantigran/PerfectGift/services/backend/catalog/internal/domain/postgres"
+	"github.com/ilikyantigran/PerfectGift/services/backend/catalog/internal/domain/valkey"
+	"github.com/ilikyantigran/PerfectGift/services/backend/catalog/internal/embedding"
 	"github.com/ilikyantigran/PerfectGift/services/backend/catalog/internal/infra/config"
 	"github.com/ilikyantigran/PerfectGift/services/backend/catalog/internal/infra/docs"
 	"github.com/ilikyantigran/PerfectGift/services/backend/catalog/internal/infra/telemetry"
@@ -49,15 +53,37 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	defer tel.Shutdown(context.Background())
 
-	// 2. TODO: dial downstream services (internal/clients) if this service calls any.
-	//    cl, err := clients.Dial(a.config.Downstreams.Other); ... defer cl.Close()
+	// 2. Embedder. Empty endpoint → deterministic fake (service boots without an
+	//    external embedding API). The API key is read from the env var named in config.
+	apiKey := ""
+	if a.config.Embedding.APIKeyEnv != "" {
+		apiKey = os.Getenv(a.config.Embedding.APIKeyEnv)
+	}
+	embedder, err := embedding.New(a.config.Embedding.Model, a.config.Embedding.Dimension, a.config.Embedding.Endpoint, apiKey)
+	if err != nil {
+		return fmt.Errorf("embedding: %w", err)
+	}
+	slog.Info("embedder ready", "model", embedder.Model(), "dimension", embedder.Dimension(), "live", a.config.Embedding.Endpoint != "")
 
-	// 3. TODO: open backing stores (internal/domain/*).
-	//    store, err := valkey.NewStore(a.config.Valkey.Address); ... defer store.Close()
+	// 3. Backing stores: Postgres (reference + corpus + pgvector) and Valkey (cache).
+	pg, err := postgres.NewStore(ctx, a.config.Postgres.DSN)
+	if err != nil {
+		return fmt.Errorf("postgres: %w", err)
+	}
+	defer pg.Close()
 
-	// 4. TODO: construct the RPC implementation (internal/app/<name>_server.go).
-	//    srv := NewServer(cl, store, ...)
-	var srv catalogv1.CatalogServiceServer // replace with: srv := NewServer(...)
+	cache, err := valkey.NewStore(a.config.Valkey.Address)
+	if err != nil {
+		return fmt.Errorf("valkey: %w", err)
+	}
+	defer cache.Close()
+
+	// 4. Construct the RPC implementation.
+	srv := NewServer(pg, pg, cache, embedder, Tuning{
+		ReferenceCacheTTL: time.Duration(a.config.Catalog.ReferenceCacheTTLSeconds) * time.Second,
+		DefaultTopK:       a.config.Catalog.DefaultTopK,
+		MaxTopK:           a.config.Catalog.MaxTopK,
+	})
 
 	// 5. gRPC server.
 	grpcAddr := fmt.Sprintf(":%s", a.config.Service.GrpcPort)

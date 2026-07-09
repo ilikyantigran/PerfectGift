@@ -1,6 +1,7 @@
 package token
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -59,12 +60,15 @@ func TestVerifyRejectsExpired(t *testing.T) {
 func TestVerifyRejectsTampered(t *testing.T) {
 	m := newTestManager(t)
 	tok, _, _ := m.Issue("u", "s")
-	// Flip the last character of the signature.
+	// Flip the first character of the signature segment (significant bits, unlike
+	// the trailing base64 char which only carries padding bits).
+	dot := strings.LastIndexByte(tok, '.')
 	b := []byte(tok)
-	if b[len(b)-1] == 'a' {
-		b[len(b)-1] = 'b'
+	i := dot + 1
+	if b[i] == 'A' {
+		b[i] = 'B'
 	} else {
-		b[len(b)-1] = 'a'
+		b[i] = 'A'
 	}
 	if _, err := m.Verify(string(b)); err == nil {
 		t.Fatal("expected tampered token to be rejected")

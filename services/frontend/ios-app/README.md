@@ -55,7 +55,7 @@ xcodegen generate            # produces App/PerfectGift.xcodeproj
 open PerfectGift.xcodeproj    # build & run on a simulator (⌘R)
 ```
 
-Requires **Xcode 15+** and iOS 17+. (Sign in with Apple, APNs, and Universal Links need a
+Requires **Xcode 16+** and **iOS 18+** (deployment target `18.0`). (Sign in with Apple, APNs, and Universal Links need a
 real signing team + provisioning; the app runs in the simulator without them for the
 email-sign-in and generation flows.)
 

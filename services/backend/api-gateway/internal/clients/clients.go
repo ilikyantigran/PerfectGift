@@ -6,6 +6,7 @@ package clients
 
 import (
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
@@ -43,6 +44,12 @@ func Dial(cfg *config.Config) (*Clients, error) {
 	dial := func(name, addr string) (*grpc.ClientConn, error) {
 		if addr == "" {
 			return nil, fmt.Errorf("clients: missing downstream address for %s", name)
+		}
+		// grpc.NewClient parses the target as a URI: a bare "identity:9090" is read
+		// as scheme="identity" and the resolver "produces zero addresses". Give it an
+		// explicit dns:/// scheme unless one is already present.
+		if !strings.Contains(addr, "://") {
+			addr = "dns:///" + addr
 		}
 		conn, err := grpc.NewClient(addr, opts...)
 		if err != nil {

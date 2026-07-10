@@ -1,0 +1,5 @@
+<resources>
+    <!-- Base theme; Compose supplies the real Material 3 styling at runtime.
+         Uses a Material3 DayNight parent so the splash/window chrome matches. -->
+    <style name="Theme.PerfectGift" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

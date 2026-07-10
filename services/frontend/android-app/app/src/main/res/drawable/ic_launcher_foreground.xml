@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple gift-box glyph on the adaptive foreground layer. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,46h32v26h-32z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,40h36v8h-36z" />
+    <path
+        android:fillColor="#EADDFF"
+        android:pathData="M52,40h4v32h-4z" />
+</vector>

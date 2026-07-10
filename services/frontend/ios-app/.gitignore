@@ -1,0 +1,10 @@
+# SwiftPM / Xcode build artifacts
+.build/
+DerivedData/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.xcuserstate
+# CocoaPods (if used)
+Pods/

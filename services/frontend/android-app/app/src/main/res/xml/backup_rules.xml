@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exclude the auth-token DataStore from backups (no PII persisted off-device). -->
+<full-backup-content>
+    <exclude domain="file" path="datastore/" />
+</full-backup-content>

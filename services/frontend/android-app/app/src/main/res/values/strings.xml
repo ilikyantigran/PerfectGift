@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">PerfectGift</string>
+    <string name="fcm_channel_id">perfectgift_default</string>
+    <string name="fcm_channel_name">PerfectGift notifications</string>
+</resources>

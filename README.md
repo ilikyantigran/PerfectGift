@@ -10,11 +10,13 @@ Native **iOS** (SwiftUI) and **Android** (Kotlin/Compose) clients, a tiny **poll
 and a set of **Go microservices** behind an API gateway. Idea generation is powered by
 **Anthropic Claude**.
 
-<!-- DEPENDENCY_GIF -->
+![PerfectGift dependency flow](diagrams/dependency-flow.gif)
 
-> How the components communicate — clients → API gateway → domain services → their data
-> stores, the NATS event/job bus, and the external LLM / push providers.
-> Interactive version: [`diagrams/dependency-graph.html`](diagrams/dependency-graph.html).
+> How the components communicate — packets flow along the real links: clients → API gateway
+> → domain services → their data stores, the NATS event/job bus, and the external LLM / push
+> providers (colored by the calling component).
+> Interactive version (pan / zoom / hover-to-trace / click-to-isolate):
+> [`diagrams/dependency-graph.html`](diagrams/dependency-graph.html).
 
 ---
 

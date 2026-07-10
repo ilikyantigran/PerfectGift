@@ -16,8 +16,10 @@ nats:
   stream: POLL
   subject: poll.completed
 
-security:
-  jwt_secret: "local-dev-only-change-me"
+auth:
+  jwks_url: http://localhost:8081/.well-known/jwks.json
+  issuer: https://identity.perfectgift.local
+  audience: perfectgift
 
 tokens:
   default_ttl_seconds: 604800 # 7 days

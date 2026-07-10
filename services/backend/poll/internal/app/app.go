@@ -77,8 +77,12 @@ func (a *App) Run(ctx context.Context) error {
 
 	srv := NewServer(pg, rl, pub, a.tuning())
 
-	// gRPC server, with the auth interceptor resolving JWT subjects.
-	authn := auth.New(a.config.Security.JWTSecret)
+	// gRPC server, with the auth interceptor resolving JWT subjects by verifying
+	// Identity-issued EdDSA tokens against Identity's JWKS (same as the gateway).
+	authn, err := auth.NewInterceptor(a.config.Auth.JWKSURL, a.config.Auth.Issuer, a.config.Auth.Audience)
+	if err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
 	grpcAddr := fmt.Sprintf(":%s", a.config.Service.GrpcPort)
 	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
@@ -86,7 +90,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	a.grpcServer = grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
-		grpc.ChainUnaryInterceptor(authn.UnaryInterceptor()),
+		grpc.ChainUnaryInterceptor(authn.Unary()),
 	)
 	reflection.Register(a.grpcServer)
 	pollv1.RegisterPollServiceServer(a.grpcServer, srv)

@@ -32,9 +32,11 @@ type Config struct {
 		Subject string `yaml:"subject"` // publish subject, e.g. poll.completed
 	} `yaml:"nats"`
 
-	Security struct {
-		JWTSecret string `yaml:"jwt_secret"` // HS256 secret for owner-route JWTs
-	} `yaml:"security"`
+	Auth struct {
+		JWKSURL  string `yaml:"jwks_url"` // Identity's JWKS endpoint (EdDSA public keys)
+		Issuer   string `yaml:"issuer"`   // expected `iss`
+		Audience string `yaml:"audience"` // expected `aud`
+	} `yaml:"auth"`
 
 	Tokens struct {
 		DefaultTTLSeconds int `yaml:"default_ttl_seconds"` // link token lifetime when request omits ttl

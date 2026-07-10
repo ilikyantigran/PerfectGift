@@ -1,31 +1,23 @@
-// Package auth resolves the acting user's id from the request's JWT and exposes
-// it through the context. The acting id is ALWAYS taken from the verified token,
-// never from a request body field — body ids are only ever *target* ids.
+// Package auth resolves the acting user's id from the request's JWT and exposes it
+// through the context. The acting id is ALWAYS taken from the verified token, never
+// from a request body field — body ids are only ever *target* ids.
 //
-// Tokens are HS256, signed by Identity with a shared secret. (JWKS/RS256 is the
-// eventual target; the interface here lets us swap the verifier without touching
-// the handlers.) Anonymous RPCs simply carry no token; owner RPCs check that a
-// subject is present and enforce ownership themselves.
+// Tokens are Identity-issued EdDSA JWTs, verified LOCALLY against Identity's JWKS
+// (see verifier.go), the same way the API gateway verifies them. Anonymous RPCs
+// simply carry no token; owner RPCs check that a subject is present and enforce
+// ownership themselves.
 package auth
 
 import (
 	"context"
-	"errors"
+	"net/http"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
 type ctxKey struct{}
-
-// Authenticator verifies HS256 JWTs with a shared secret.
-type Authenticator struct {
-	secret []byte
-}
-
-func New(secret string) *Authenticator { return &Authenticator{secret: []byte(secret)} }
 
 // WithSubject stores a resolved subject on the context (used by tests and the
 // interceptor).
@@ -39,45 +31,35 @@ func SubjectFrom(ctx context.Context) (string, bool) {
 	return s, ok && s != ""
 }
 
-// Parse verifies a raw JWT string and returns its subject.
-func (a *Authenticator) Parse(raw string) (string, error) {
-	tok, err := jwt.Parse(raw, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
-		}
-		return a.secret, nil
-	}, jwt.WithValidMethods([]string{"HS256"}))
+// Interceptor resolves JWT subjects using a JWKS Verifier.
+type Interceptor struct{ v *Verifier }
+
+// NewInterceptor builds an auth interceptor that verifies Identity's access tokens
+// against the JWKS published at jwksURL (e.g. http://identity:8080/.well-known/jwks.json).
+func NewInterceptor(jwksURL, issuer, audience string) (*Interceptor, error) {
+	v, err := NewVerifier(Config{
+		Issuer:   issuer,
+		Audience: audience,
+		Source:   NewHTTPSource(jwksURL, &http.Client{Timeout: 5 * time.Second}),
+	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	sub, err := tok.Claims.GetSubject()
-	if err != nil || sub == "" {
-		return "", errors.New("token has no subject")
-	}
-	return sub, nil
+	return &Interceptor{v: v}, nil
 }
 
-// Issue mints an HS256 token for the subject. Primarily for local dev and tests;
-// in production Identity issues these.
-func (a *Authenticator) Issue(subject string, ttl time.Duration) (string, error) {
-	now := time.Now()
-	claims := jwt.RegisteredClaims{
-		Subject:   subject,
-		IssuedAt:  jwt.NewNumericDate(now),
-		ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
-	}
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.secret)
-}
+// NewInterceptorWithVerifier wraps an already-built Verifier (used by tests).
+func NewInterceptorWithVerifier(v *Verifier) *Interceptor { return &Interceptor{v: v} }
 
-// UnaryInterceptor extracts a bearer token from the "authorization" metadata,
-// verifies it, and — when valid — attaches the subject to the context. Invalid or
-// absent tokens are NOT rejected here (anonymous RPCs are legitimate); handlers
-// that require an owner enforce that themselves.
-func (a *Authenticator) UnaryInterceptor() grpc.UnaryServerInterceptor {
+// Unary extracts a bearer token from the "authorization" metadata, verifies it, and
+// — when valid — attaches the subject to the context. Invalid or absent tokens are
+// NOT rejected here (anonymous RPCs are legitimate); handlers that require an owner
+// enforce that themselves.
+func (i *Interceptor) Unary() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		if raw := bearerFromMetadata(ctx); raw != "" {
-			if sub, err := a.Parse(raw); err == nil {
-				ctx = WithSubject(ctx, sub)
+			if claims, err := i.v.Verify(ctx, raw); err == nil {
+				ctx = WithSubject(ctx, claims.Subject)
 			}
 		}
 		return handler(ctx, req)

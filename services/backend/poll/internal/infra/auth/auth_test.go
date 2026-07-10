@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -9,85 +12,137 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func TestIssueParse_RoundTrip(t *testing.T) {
-	a := New("s3cr3t")
-	tok, err := a.Issue("user-42", time.Minute)
+const (
+	testKid = "test-key-1"
+	testIss = "https://identity.perfectgift.local"
+	testAud = "perfectgift"
+)
+
+// mintEdDSA builds and signs an Ed25519 JWT the same way Identity does.
+func mintEdDSA(t *testing.T, priv ed25519.PrivateKey, claims map[string]any) string {
+	t.Helper()
+	hdr := map[string]any{"alg": "EdDSA", "kid": testKid, "typ": "JWT"}
+	enc := func(v any) string {
+		b, _ := json.Marshal(v)
+		return base64.RawURLEncoding.EncodeToString(b)
+	}
+	signingInput := enc(hdr) + "." + enc(claims)
+	sig := ed25519.Sign(priv, []byte(signingInput))
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+}
+
+// newTestVerifier returns a verifier backed by an in-memory Ed25519 keyset plus the
+// private key to mint tokens with. Fully offline — no JWKS HTTP fetch.
+func newTestVerifier(t *testing.T) (*Verifier, ed25519.PrivateKey) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
-		t.Fatalf("Issue: %v", err)
+		t.Fatalf("keygen: %v", err)
 	}
-	sub, err := a.Parse(tok)
+	jwks := &JWKS{Keys: []JWK{{
+		Kty: "OKP", Crv: "Ed25519", Alg: "EdDSA", Use: "sig", Kid: testKid,
+		X: base64.RawURLEncoding.EncodeToString(pub),
+	}}}
+	v, err := NewVerifier(Config{Issuer: testIss, Audience: testAud, Source: StaticKeySet(jwks)})
 	if err != nil {
-		t.Fatalf("Parse: %v", err)
+		t.Fatalf("NewVerifier: %v", err)
 	}
-	if sub != "user-42" {
-		t.Fatalf("subject=%q want user-42", sub)
+	return v, priv
+}
+
+func validClaims() map[string]any {
+	now := time.Now()
+	return map[string]any{
+		"sub": "user-123",
+		"iss": testIss,
+		"aud": testAud,
+		"iat": now.Unix(),
+		"exp": now.Add(time.Hour).Unix(),
 	}
 }
 
-func TestParse_WrongSecretRejected(t *testing.T) {
-	tok, _ := New("right").Issue("u", time.Minute)
-	if _, err := New("wrong").Parse(tok); err == nil {
-		t.Fatal("expected verification failure with wrong secret")
-	}
-}
-
-func TestParse_Expired(t *testing.T) {
-	a := New("s")
-	tok, _ := a.Issue("u", -time.Minute)
-	if _, err := a.Parse(tok); err == nil {
-		t.Fatal("expected expired token to fail")
-	}
-}
-
-func TestInterceptor_ValidTokenSetsSubject(t *testing.T) {
-	a := New("s")
-	tok, _ := a.Issue("owner-1", time.Minute)
-	md := metadata.Pairs("authorization", "Bearer "+tok)
-	ctx := metadata.NewIncomingContext(context.Background(), md)
-
-	var got string
-	var present bool
-	_, err := a.UnaryInterceptor()(ctx, nil, &grpc.UnaryServerInfo{},
-		func(ctx context.Context, _ interface{}) (interface{}, error) {
-			got, present = SubjectFrom(ctx)
-			return nil, nil
-		})
+func TestVerify_ValidEdDSAToken(t *testing.T) {
+	v, priv := newTestVerifier(t)
+	tok := mintEdDSA(t, priv, validClaims())
+	claims, err := v.Verify(context.Background(), tok)
 	if err != nil {
-		t.Fatalf("interceptor: %v", err)
+		t.Fatalf("expected valid token, got %v", err)
 	}
-	if !present || got != "owner-1" {
-		t.Fatalf("subject=%q present=%v want owner-1", got, present)
-	}
-}
-
-func TestInterceptor_NoTokenIsAnonymous(t *testing.T) {
-	a := New("s")
-	ctx := context.Background()
-	var present bool
-	_, _ = a.UnaryInterceptor()(ctx, nil, &grpc.UnaryServerInfo{},
-		func(ctx context.Context, _ interface{}) (interface{}, error) {
-			_, present = SubjectFrom(ctx)
-			return nil, nil
-		})
-	if present {
-		t.Fatal("expected no subject for anonymous request")
+	if claims.Subject != "user-123" {
+		t.Fatalf("subject = %q, want user-123", claims.Subject)
 	}
 }
 
-func TestInterceptor_InvalidTokenIsAnonymousNotRejected(t *testing.T) {
-	a := New("s")
-	md := metadata.Pairs("authorization", "Bearer not-a-jwt")
-	ctx := metadata.NewIncomingContext(context.Background(), md)
-	var present bool
-	_, err := a.UnaryInterceptor()(ctx, nil, &grpc.UnaryServerInfo{},
-		func(ctx context.Context, _ interface{}) (interface{}, error) {
-			_, present = SubjectFrom(ctx)
-			return nil, nil
-		})
-	if err != nil {
-		t.Fatalf("interceptor must not reject; got %v", err)
+func TestVerify_Rejects(t *testing.T) {
+	v, priv := newTestVerifier(t)
+
+	// expired
+	c := validClaims()
+	c["exp"] = time.Now().Add(-time.Minute).Unix()
+	if _, err := v.Verify(context.Background(), mintEdDSA(t, priv, c)); err == nil {
+		t.Fatal("expected expired token to be rejected")
 	}
-	if present {
-		t.Fatal("invalid token must not yield a subject")
+
+	// wrong issuer
+	c = validClaims()
+	c["iss"] = "https://evil.example.com"
+	if _, err := v.Verify(context.Background(), mintEdDSA(t, priv, c)); err == nil {
+		t.Fatal("expected issuer mismatch to be rejected")
+	}
+
+	// wrong audience
+	c = validClaims()
+	c["aud"] = "someone-else"
+	if _, err := v.Verify(context.Background(), mintEdDSA(t, priv, c)); err == nil {
+		t.Fatal("expected audience mismatch to be rejected")
+	}
+
+	// signed by a different key (bad signature)
+	_, otherPriv, _ := ed25519.GenerateKey(nil)
+	if _, err := v.Verify(context.Background(), mintEdDSA(t, otherPriv, validClaims())); err == nil {
+		t.Fatal("expected bad signature to be rejected")
+	}
+
+	// garbage
+	if _, err := v.Verify(context.Background(), "not.a.jwt"); err == nil {
+		t.Fatal("expected malformed token to be rejected")
+	}
+}
+
+func TestInterceptor_AttachesSubjectAndTolueratesAnon(t *testing.T) {
+	v, priv := newTestVerifier(t)
+	i := NewInterceptorWithVerifier(v)
+
+	// A handler that records whatever subject the interceptor resolved.
+	var gotSub string
+	var gotOK bool
+	handler := func(ctx context.Context, _ any) (any, error) {
+		gotSub, gotOK = SubjectFrom(ctx)
+		return nil, nil
+	}
+	call := func(ctx context.Context) {
+		gotSub, gotOK = "", false
+		_, _ = i.Unary()(ctx, nil, &grpc.UnaryServerInfo{}, handler)
+	}
+
+	// valid token → subject attached
+	tok := mintEdDSA(t, priv, validClaims())
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+tok))
+	call(ctx)
+	if !gotOK || gotSub != "user-123" {
+		t.Fatalf("valid token: subject=%q ok=%v, want user-123/true", gotSub, gotOK)
+	}
+
+	// no token → anonymous, handler still runs (no subject)
+	call(context.Background())
+	if gotOK {
+		t.Fatalf("anonymous: expected no subject, got %q", gotSub)
+	}
+
+	// invalid token → NOT rejected here, just no subject
+	badCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer not.a.jwt"))
+	call(badCtx)
+	if gotOK {
+		t.Fatalf("invalid token: expected no subject, got %q", gotSub)
 	}
 }

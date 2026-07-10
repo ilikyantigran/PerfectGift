@@ -46,7 +46,7 @@ func (s *Server) handleSignIn(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	resp, err := s.opts.Identity.SignIn(ctx, &identityv1.SignInRequest{
-		Provider: body.Provider,
+		Provider: identityv1.Provider(identityv1.Provider_value[body.Provider]),
 		IdToken:  body.IDToken,
 		Email:    body.Email,
 		Password: body.Password,
@@ -119,9 +119,9 @@ func (s *Server) handleGetMe(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := reqCtx(r)
 	defer cancel()
 
-	resp, err := s.opts.Identity.GetMe(ctx, &identityv1.GetMeRequest{
-		UserId: subjectFrom(r.Context()),
-	})
+	// GetMeRequest carries no user id — identity reads the subject from the
+	// "authorization" metadata that reqCtx forwards.
+	resp, err := s.opts.Identity.GetMe(ctx, &identityv1.GetMeRequest{})
 	if err != nil {
 		writeGRPCError(w, err)
 		return

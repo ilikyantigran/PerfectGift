@@ -179,9 +179,9 @@ func (f *fakeNotification) RegisterDevice(_ context.Context, in *notificationv1.
 
 // compile-time checks that the fakes satisfy the generated client interfaces.
 var (
-	_ identityv1.IdentityClient         = (*fakeIdentity)(nil)
-	_ pollv1.PollClient                 = (*fakePoll)(nil)
-	_ surprisev1.SurpriseClient         = (*fakeSurprise)(nil)
-	_ catalogv1.CatalogClient           = (*fakeCatalog)(nil)
-	_ notificationv1.NotificationClient = (*fakeNotification)(nil)
+	_ identityv1.IdentityServiceClient         = (*fakeIdentity)(nil)
+	_ pollv1.PollServiceClient                 = (*fakePoll)(nil)
+	_ surprisev1.SurpriseServiceClient         = (*fakeSurprise)(nil)
+	_ catalogv1.CatalogServiceClient           = (*fakeCatalog)(nil)
+	_ notificationv1.NotificationServiceClient = (*fakeNotification)(nil)
 )

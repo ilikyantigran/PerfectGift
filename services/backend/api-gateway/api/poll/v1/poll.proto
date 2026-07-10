@@ -2,52 +2,105 @@ syntax = "proto3";
 
 package poll.v1;
 
+import "validate/validate.proto";
+import "google/api/annotations.proto";
+
 option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/poll/v1;pollv1";
 
-// Local copy of the Poll service gRPC contract, limited to the RPCs the API Gateway
-// calls. Derived from services/backend/poll/SERVICE.md §3.1.
+// PollService owns the anonymous, link-scoped two-sided poll flow. CreatePoll and
+// GetResponses are owner-scoped (JWT subject); GetPollByToken and SubmitResponse are
+// anonymous and reached by an opaque, expiring, single-poll link token.
+service PollService {
+  // CreatePoll mints a poll and an opaque expiring link token (returned once).
+  rpc CreatePoll(CreatePollRequest) returns (CreatePollResponse) {
+    option (google.api.http) = {
+      post: "/v1/polls"
+      body: "*"
+    };
+  }
+
+  // GetPollByToken resolves the link token to its poll. Anonymous. Expired,
+  // revoked, unknown or already-consumed tokens all return NotFound uniformly.
+  rpc GetPollByToken(GetPollByTokenRequest) returns (GetPollByTokenResponse) {
+    option (google.api.http) = {
+      get: "/v1/polls/token/{token}"
+    };
+  }
+
+  // SubmitResponse records the Subject's answers. Anonymous, rate-limited, one
+  // response per poll; emits PollCompleted on success.
+  rpc SubmitResponse(SubmitResponseRequest) returns (SubmitResponseResponse) {
+    option (google.api.http) = {
+      post: "/v1/polls/token/{token}/responses"
+      body: "*"
+    };
+  }
+
+  // GetResponses returns a poll's responses. Owner-only (JWT subject must equal
+  // the poll's owner_user_id).
+  rpc GetResponses(GetResponsesRequest) returns (GetResponsesResponse) {
+    option (google.api.http) = {
+      get: "/v1/polls/{poll_id}/responses"
+    };
+  }
+}
+
+enum QuestionType {
+  QUESTION_TYPE_UNSPECIFIED = 0;
+  QUESTION_TYPE_TEXT = 1;          // free-text answer
+  QUESTION_TYPE_SINGLE_CHOICE = 2; // exactly one option id
+  QUESTION_TYPE_MULTI_CHOICE = 3;  // one or more option ids
+}
+
+message Option {
+  string id = 1;
+  string label = 2;
+}
 
 message Question {
-  string id = 1;
-  string text = 2;
-  string kind = 3; // e.g. single_choice | multi_choice | free_text
-  repeated string options = 4;
+  string id = 1 [(validate.rules).string.min_len = 1];
+  string prompt = 2 [(validate.rules).string.min_len = 1];
+  QuestionType type = 3 [(validate.rules).enum.defined_only = true];
+  repeated Option options = 4; // for choice types
+  bool required = 5;
 }
 
 message Answer {
-  string question_id = 1;
-  string value = 2;
-  repeated string values = 3;
+  string question_id = 1 [(validate.rules).string.min_len = 1];
+  string text = 2;                  // for TEXT questions
+  repeated string choice_ids = 3;   // for CHOICE questions
 }
 
-// owner_user_id is injected by the gateway from the JWT subject, not the body.
+// ---- CreatePoll (owner) ----
 message CreatePollRequest {
-  string owner_user_id = 1;
-  string title = 2;
-  repeated Question questions = 3;
-  string surprise_request_id = 4;
-  int64 ttl_seconds = 5;
+  string title = 1 [(validate.rules).string.min_len = 1];
+  repeated Question questions = 2 [(validate.rules).repeated.min_items = 1];
+  string surprise_request_id = 3; // optional
+  int64 ttl_seconds = 4;          // optional; server default if <= 0
 }
 
 message CreatePollResponse {
   string poll_id = 1;
-  string link_token = 2; // raw token, returned once
+  string link_token = 2; // raw opaque token, returned ONCE
   string link_url = 3;
-  string expires_at = 4;
+  string expires_at = 4; // RFC3339
 }
 
+// ---- GetPollByToken (anonymous) ----
 message GetPollByTokenRequest {
-  string token = 1;
+  string token = 1 [(validate.rules).string.min_len = 1];
 }
 
 message GetPollByTokenResponse {
   string poll_id = 1;
   string title = 2;
   repeated Question questions = 3;
+  // Deliberately no owner_user_id / surprise_request_id: no owner data leaked.
 }
 
+// ---- SubmitResponse (anonymous) ----
 message SubmitResponseRequest {
-  string token = 1;
+  string token = 1 [(validate.rules).string.min_len = 1];
   repeated Answer answers = 2;
 }
 
@@ -55,25 +108,17 @@ message SubmitResponseResponse {
   bool ok = 1;
 }
 
-// owner_user_id from the JWT subject; the service enforces owner-scoped authz.
+// ---- GetResponses (owner) ----
 message GetResponsesRequest {
-  string poll_id = 1;
-  string owner_user_id = 2;
+  string poll_id = 1 [(validate.rules).string.min_len = 1];
 }
 
-message PollResponse {
+message Response {
   string id = 1;
   repeated Answer answers = 2;
-  string submitted_at = 3;
+  string submitted_at = 3; // RFC3339
 }
 
 message GetResponsesResponse {
-  repeated PollResponse responses = 1;
-}
-
-service Poll {
-  rpc CreatePoll(CreatePollRequest) returns (CreatePollResponse);
-  rpc GetPollByToken(GetPollByTokenRequest) returns (GetPollByTokenResponse);
-  rpc SubmitResponse(SubmitResponseRequest) returns (SubmitResponseResponse);
-  rpc GetResponses(GetResponsesRequest) returns (GetResponsesResponse);
+  repeated Response responses = 1;
 }

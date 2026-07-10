@@ -2,16 +2,43 @@ syntax = "proto3";
 
 package notification.v1;
 
+import "validate/validate.proto";
+import "google/api/annotations.proto";
+
 option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/notification/v1;notificationv1";
 
-// Local copy of the Notification service gRPC contract, limited to the RPCs the API
-// Gateway calls. Derived from services/backend/notification/SERVICE.md §3.1.
+// NotificationService owns device-token registration for push fan-out.
+// Everything else this service does is bus-driven (see the NATS consumers and
+// the outbox dispatcher); the only synchronous surface is device registration.
+service NotificationService {
+  // RegisterDevice upserts a device by its push token (owner-scoped).
+  // REST: POST /v1/devices
+  rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceResponse) {
+    option (google.api.http) = {
+      post: "/v1/devices"
+      body: "*"
+    };
+  }
 
-// user_id is injected by the gateway from the JWT subject, not the body.
+  // UnregisterDevice deactivates a device on sign-out / uninstall. Idempotent.
+  rpc UnregisterDevice(UnregisterDeviceRequest) returns (UnregisterDeviceResponse) {
+    option (google.api.http) = {
+      delete: "/v1/devices/{push_token}"
+    };
+  }
+}
+
+// Platform of the target device.
+enum Platform {
+  PLATFORM_UNSPECIFIED = 0;
+  PLATFORM_IOS = 1;
+  PLATFORM_ANDROID = 2;
+}
+
 message RegisterDeviceRequest {
-  string user_id = 1;
-  string platform = 2; // ios | android
-  string push_token = 3;
+  string user_id = 1 [(validate.rules).string.min_len = 1];
+  Platform platform = 2 [(validate.rules).enum = {defined_only: true, not_in: 0}];
+  string push_token = 3 [(validate.rules).string.min_len = 1];
   string app_version = 4;
 }
 
@@ -19,6 +46,10 @@ message RegisterDeviceResponse {
   string device_id = 1;
 }
 
-service Notification {
-  rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceResponse);
+message UnregisterDeviceRequest {
+  string push_token = 1 [(validate.rules).string.min_len = 1];
+}
+
+message UnregisterDeviceResponse {
+  bool ok = 1;
 }

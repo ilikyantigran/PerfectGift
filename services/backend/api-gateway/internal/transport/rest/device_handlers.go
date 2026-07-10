@@ -23,7 +23,7 @@ func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.opts.Notification.RegisterDevice(ctx, &notificationv1.RegisterDeviceRequest{
 		UserId:     subjectFrom(r.Context()),
-		Platform:   body.Platform,
+		Platform:   notificationv1.Platform(notificationv1.Platform_value[body.Platform]),
 		PushToken:  body.PushToken,
 		AppVersion: body.AppVersion,
 	})

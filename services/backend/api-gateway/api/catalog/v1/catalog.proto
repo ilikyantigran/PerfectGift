@@ -2,49 +2,118 @@ syntax = "proto3";
 
 package catalog.v1;
 
+import "google/api/annotations.proto";
+
 option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/catalog/v1;catalogv1";
 
-// Local copy of the Catalog service gRPC contract, limited to the RPCs the API
-// Gateway calls (client reference reads). Derived from
-// services/backend/catalog/SERVICE.md §3.1. SearchInspiration/UpsertInspiration are
-// internal-only (Surprise/admin) and are intentionally NOT exposed by the gateway.
+// CatalogService is PerfectGift's read-mostly reference + grounding service.
+// ListHolidays / GetCategories are cached client reads (exposed via the gateway).
+// SearchInspiration is internal-only (pgvector grounding for the Surprise worker).
+// UpsertInspiration is the rare admin/editorial write path.
+service CatalogService {
+  // Client reference read. region/active/on_or_after bind as query params:
+  // GET /v1/holidays?region=&active=&on_or_after=
+  rpc ListHolidays(ListHolidaysRequest) returns (ListHolidaysResponse) {
+    option (google.api.http) = {
+      get: "/v1/holidays"
+    };
+  }
+
+  // Client reference read. kind binds as a query param:
+  // GET /v1/categories?kind=
+  rpc GetCategories(GetCategoriesRequest) returns (GetCategoriesResponse) {
+    option (google.api.http) = {
+      get: "/v1/categories"
+    };
+  }
+
+  // INTERNAL ONLY (called by Surprise). pgvector similarity search over the
+  // curated corpus. Never exposed on the public REST edge — no HTTP annotation.
+  rpc SearchInspiration(SearchInspirationRequest) returns (SearchInspirationResponse);
+
+  // ADMIN/EDITORIAL. (Re)computes the embedding, upserts the row, invalidates the
+  // reference cache. No HTTP annotation (not a client-facing call).
+  rpc UpsertInspiration(UpsertInspirationRequest) returns (UpsertInspirationResponse);
+}
+
+// ---- Enums ----
+
+enum DateRule {
+  DATE_RULE_UNSPECIFIED = 0;
+  DATE_RULE_FIXED = 1;     // same calendar date every year (e.g. Feb 14)
+  DATE_RULE_RELATIVE = 2;  // computed each year (e.g. "second Sunday of May")
+}
+
+enum CategoryKind {
+  CATEGORY_KIND_UNSPECIFIED = 0;
+  CATEGORY_KIND_GIFT = 1;
+  CATEGORY_KIND_DATE = 2;
+}
+
+// ---- Domain messages ----
 
 message Holiday {
   string id = 1;
   string name = 2;
-  string date_rule = 3; // fixed | relative
+  DateRule date_rule = 3;
   string region = 4;
   repeated string tags = 5;
   bool active = 6;
 }
 
+message Category {
+  string id = 1;
+  string name = 2;
+  CategoryKind kind = 3;
+  string parent_id = 4; // empty when top-level
+}
+
+message BudgetBand {
+  string id = 1;
+  string label = 2;
+  int32 min_cents = 3;
+  int32 max_cents = 4;
+  string currency = 5;
+}
+
+// Inspiration is the editorial corpus row. The embedding is never sent over the
+// wire (computed server-side); it is not part of this message.
+message Inspiration {
+  string id = 1;            // empty on create; set to update in place
+  string title = 2;
+  string body = 3;
+  string category_id = 4;   // optional
+  string budget_band_id = 5; // optional
+  repeated string tags = 6;
+  string curated_by = 7;
+  bool active = 8;
+}
+
+// Snippet is a grounding result: an inspiration row plus its similarity score.
+message Snippet {
+  string id = 1;
+  string title = 2;
+  string body = 3;
+  string category_id = 4;
+  string budget_band_id = 5;
+  repeated string tags = 6;
+  double score = 7; // cosine similarity in [0,1]; higher is closer
+}
+
+// ---- RPC request/response ----
+
 message ListHolidaysRequest {
-  string region = 1;
-  bool active = 2;
-  string on_or_after = 3;
+  string region = 1;         // optional filter
+  optional bool active = 2;  // optional filter; unset = all
+  string on_or_after = 3;    // optional ISO date (YYYY-MM-DD); reserved for date-aware filtering
 }
 
 message ListHolidaysResponse {
   repeated Holiday holidays = 1;
 }
 
-message Category {
-  string id = 1;
-  string name = 2;
-  string kind = 3; // gift | date
-  string parent_id = 4;
-}
-
-message BudgetBand {
-  string id = 1;
-  string label = 2;
-  int64 min = 3;
-  int64 max = 4;
-  string currency = 5;
-}
-
 message GetCategoriesRequest {
-  string kind = 1;
+  CategoryKind kind = 1; // UNSPECIFIED = all kinds
 }
 
 message GetCategoriesResponse {
@@ -52,7 +121,27 @@ message GetCategoriesResponse {
   repeated BudgetBand budget_bands = 2;
 }
 
-service Catalog {
-  rpc ListHolidays(ListHolidaysRequest) returns (ListHolidaysResponse);
-  rpc GetCategories(GetCategoriesRequest) returns (GetCategoriesResponse);
+message SearchFilters {
+  string category_id = 1;    // optional
+  string budget_band_id = 2; // optional
+}
+
+message SearchInspirationRequest {
+  // Provide exactly one of query_text or query_embedding.
+  string query_text = 1;              // server embeds it (must match Surprise's model)
+  repeated float query_embedding = 2; // pre-computed by the caller; length must == configured dimension
+  SearchFilters filters = 3;
+  int32 top_k = 4;                    // defaulted/capped server-side
+}
+
+message SearchInspirationResponse {
+  repeated Snippet snippets = 1;
+}
+
+message UpsertInspirationRequest {
+  Inspiration inspiration = 1;
+}
+
+message UpsertInspirationResponse {
+  string id = 1;
 }

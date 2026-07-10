@@ -30,11 +30,11 @@ type TokenVerifier interface {
 // Options are the dependencies the REST edge needs. Every gRPC client is an
 // interface (the generated <Svc>Client), so a fake can be substituted in tests.
 type Options struct {
-	Identity     identityv1.IdentityClient
-	Poll         pollv1.PollClient
-	Surprise     surprisev1.SurpriseClient
-	Catalog      catalogv1.CatalogClient
-	Notification notificationv1.NotificationClient
+	Identity     identityv1.IdentityServiceClient
+	Poll         pollv1.PollServiceClient
+	Surprise     surprisev1.SurpriseServiceClient
+	Catalog      catalogv1.CatalogServiceClient
+	Notification notificationv1.NotificationServiceClient
 
 	Verifier TokenVerifier
 

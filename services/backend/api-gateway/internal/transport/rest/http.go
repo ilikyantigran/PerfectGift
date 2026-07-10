@@ -9,14 +9,36 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"google.golang.org/grpc/metadata"
 )
 
 // downstreamTimeout bounds every gRPC call the gateway makes to a domain service.
 const downstreamTimeout = 15 * time.Second
 
-// reqCtx derives a timeout-bounded context from the request for a downstream call.
+// reqCtx derives a timeout-bounded context for a downstream gRPC call and attaches
+// the caller identity as outgoing metadata, since several services take the subject
+// from metadata rather than the request message:
+//   - "authorization": the original bearer token (identity.GetMe validates it itself)
+//   - "x-user-id":      the authenticated JWT subject (surprise reads this)
+//   - "x-forwarded-for": client IP (poll uses it for anti-abuse)
+// Anonymous requests simply carry none of these.
 func reqCtx(r *http.Request) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(r.Context(), downstreamTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), downstreamTimeout)
+	md := metadata.MD{}
+	if sub := subjectFrom(r.Context()); sub != "" {
+		md.Set("x-user-id", sub)
+	}
+	if h := r.Header.Get("Authorization"); h != "" {
+		md.Set("authorization", h)
+	}
+	if xff := clientIP(r); xff != "" {
+		md.Set("x-forwarded-for", xff)
+	}
+	if len(md) > 0 {
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+	return ctx, cancel
 }
 
 // ctxKey is an unexported context key type to avoid collisions.

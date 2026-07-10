@@ -6,35 +6,61 @@ import (
 	pollv1 "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/poll/v1"
 )
 
-// --- JSON DTOs ---
+// --- JSON DTOs (aligned to poll.v1: prompt/type/options + text/choice_ids) ---
+
+type optionDTO struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
 
 type questionDTO struct {
-	ID      string   `json:"id"`
-	Text    string   `json:"text"`
-	Kind    string   `json:"kind,omitempty"`
-	Options []string `json:"options,omitempty"`
+	ID       string      `json:"id"`
+	Prompt   string      `json:"prompt"`
+	Type     string      `json:"type,omitempty"` // QUESTION_TYPE_TEXT | _SINGLE_CHOICE | _MULTI_CHOICE
+	Options  []optionDTO `json:"options,omitempty"`
+	Required bool        `json:"required"`
 }
 
 type answerDTO struct {
 	QuestionID string   `json:"question_id"`
-	Value      string   `json:"value,omitempty"`
-	Values     []string `json:"values,omitempty"`
+	Text       string   `json:"text,omitempty"`       // for TEXT questions
+	ChoiceIDs  []string `json:"choice_ids,omitempty"` // for CHOICE questions
 }
 
 func questionToProto(q questionDTO) *pollv1.Question {
-	return &pollv1.Question{Id: q.ID, Text: q.Text, Kind: q.Kind, Options: q.Options}
+	opts := make([]*pollv1.Option, 0, len(q.Options))
+	for _, o := range q.Options {
+		opts = append(opts, &pollv1.Option{Id: o.ID, Label: o.Label})
+	}
+	return &pollv1.Question{
+		Id:       q.ID,
+		Prompt:   q.Prompt,
+		Type:     pollv1.QuestionType(pollv1.QuestionType_value[q.Type]),
+		Options:  opts,
+		Required: q.Required,
+	}
 }
 
 func questionToDTO(q *pollv1.Question) questionDTO {
-	return questionDTO{ID: q.GetId(), Text: q.GetText(), Kind: q.GetKind(), Options: q.GetOptions()}
+	opts := make([]optionDTO, 0, len(q.GetOptions()))
+	for _, o := range q.GetOptions() {
+		opts = append(opts, optionDTO{ID: o.GetId(), Label: o.GetLabel()})
+	}
+	return questionDTO{
+		ID:       q.GetId(),
+		Prompt:   q.GetPrompt(),
+		Type:     q.GetType().String(),
+		Options:  opts,
+		Required: q.GetRequired(),
+	}
 }
 
 func answerToProto(a answerDTO) *pollv1.Answer {
-	return &pollv1.Answer{QuestionId: a.QuestionID, Value: a.Value, Values: a.Values}
+	return &pollv1.Answer{QuestionId: a.QuestionID, Text: a.Text, ChoiceIds: a.ChoiceIDs}
 }
 
 func answerToDTO(a *pollv1.Answer) answerDTO {
-	return answerDTO{QuestionID: a.GetQuestionId(), Value: a.GetValue(), Values: a.GetValues()}
+	return answerDTO{QuestionID: a.GetQuestionId(), Text: a.GetText(), ChoiceIDs: a.GetChoiceIds()}
 }
 
 type createPollRequest struct {
@@ -65,7 +91,6 @@ func (s *Server) handleCreatePoll(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	resp, err := s.opts.Poll.CreatePoll(ctx, &pollv1.CreatePollRequest{
-		OwnerUserId:       subjectFrom(r.Context()),
 		Title:             body.Title,
 		Questions:         questions,
 		SurpriseRequestId: body.SurpriseRequestID,
@@ -96,8 +121,7 @@ func (s *Server) handleGetResponses(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	resp, err := s.opts.Poll.GetResponses(ctx, &pollv1.GetResponsesRequest{
-		PollId:      pollID,
-		OwnerUserId: subjectFrom(r.Context()),
+		PollId: pollID,
 	})
 	if err != nil {
 		writeGRPCError(w, err)

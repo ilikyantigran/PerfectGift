@@ -2,30 +2,102 @@ syntax = "proto3";
 
 package identity.v1;
 
+import "google/api/annotations.proto";
+import "google/protobuf/struct.proto";
+
 option go_package = "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/identity/v1;identityv1";
 
-// Local copy of the Identity service gRPC contract, limited to the RPCs the API
-// Gateway calls. Derived from services/backend/identity/SERVICE.md §3.1.
-// Client-side only: no google.api.http annotations (the gateway calls these by gRPC).
+// IdentityService answers "who is the User?": sign-in, token issue/validate,
+// sessions, and JWKS publication. Every other service depends on its JWT
+// contract and verifies tokens locally via the published public keys.
+service IdentityService {
+  // SignIn verifies an Apple/Google ID token or an email+password and returns a
+  // fresh access/refresh token pair. First social login creates the user.
+  rpc SignIn(SignInRequest) returns (SignInResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/signin"
+      body: "*"
+    };
+  }
 
+  // RefreshToken performs a rotating refresh: the presented refresh token is
+  // invalidated and a new pair is issued. Reuse of an old token revokes the
+  // session (reuse detection).
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/refresh"
+      body: "*"
+    };
+  }
+
+  // Revoke kills a session (sign-out / security event) by refresh token or
+  // session id. Deleting the session invalidates its refresh token instantly.
+  rpc Revoke(RevokeRequest) returns (RevokeResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/revoke"
+      body: "*"
+    };
+  }
+
+  // GetMe returns the current user's profile. The subject is derived from the
+  // Bearer access token in request metadata, never from the request body.
+  rpc GetMe(GetMeRequest) returns (GetMeResponse) {
+    option (google.api.http) = {
+      get: "/v1/auth/me"
+    };
+  }
+
+  // ValidateToken verifies an access token locally (crypto + claims). Used by
+  // the gateway only when needed; hot-path validation is local via JWKS.
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse) {
+    option (google.api.http) = {
+      post: "/v1/auth/validate"
+      body: "*"
+    };
+  }
+
+  // GetJWKS publishes the current + previous public keys as a JWK Set so every
+  // verifier can validate JWTs locally and tolerate key rotation.
+  rpc GetJWKS(GetJWKSRequest) returns (GetJWKSResponse) {
+    option (google.api.http) = {
+      get: "/.well-known/jwks.json"
+    };
+  }
+}
+
+// Provider identifies the sign-in method.
+enum Provider {
+  PROVIDER_UNSPECIFIED = 0;
+  PROVIDER_APPLE = 1;
+  PROVIDER_GOOGLE = 2;
+  PROVIDER_EMAIL = 3;
+}
+
+// User is the basic public profile Identity owns.
 message User {
-  string id = 1;
-  string email = 2;
+  string id = 1;           // uuid
+  string email = 2;        // may be empty for social-only accounts
   string display_name = 3;
-  string status = 4;
+  string status = 4;       // active | disabled
+  string created_at = 5;   // RFC 3339
 }
 
 message SignInRequest {
-  string provider = 1; // apple | google | email
-  string id_token = 2; // Apple/Google ID token (social)
-  string email = 3;    // email/password fallback
+  Provider provider = 1;
+  // For social sign-in: the provider-issued ID token (JWT).
+  string id_token = 2;
+  // For email/password sign-in:
+  string email = 3;
   string password = 4;
+  string display_name = 5; // optional, used when first creating an account
+  // Optional device label recorded on the session (e.g. "iPhone 15").
+  string device = 6;
 }
 
 message SignInResponse {
   string access_token = 1;
   string refresh_token = 2;
-  int64 expires_in = 3;
+  int64 expires_in = 3; // access-token lifetime, seconds
   User user = 4;
 }
 
@@ -46,18 +118,34 @@ message RevokeRequest {
 
 message RevokeResponse {}
 
-// Subject is taken from the validated JWT by the gateway, never the request body.
-message GetMeRequest {
-  string user_id = 1;
-}
+message GetMeRequest {}
 
 message GetMeResponse {
   User user = 1;
 }
 
-service Identity {
-  rpc SignIn(SignInRequest) returns (SignInResponse);
-  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
-  rpc Revoke(RevokeRequest) returns (RevokeResponse);
-  rpc GetMe(GetMeRequest) returns (GetMeResponse);
+message ValidateTokenRequest {
+  string access_token = 1;
+}
+
+message ValidateTokenResponse {
+  bool valid = 1;
+  string subject = 2;              // user id when valid
+  google.protobuf.Struct claims = 3; // decoded claims when valid
+}
+
+message GetJWKSRequest {}
+
+// JWK is a single public key in JWK form (RFC 7517 / RFC 8037 for OKP).
+message JWK {
+  string kty = 1; // "OKP"
+  string crv = 2; // "Ed25519"
+  string x = 3;   // base64url public key
+  string kid = 4; // key id
+  string use = 5; // "sig"
+  string alg = 6; // "EdDSA"
+}
+
+message GetJWKSResponse {
+  repeated JWK keys = 1;
 }

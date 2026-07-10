@@ -21,11 +21,11 @@ import (
 
 // Clients bundles the downstream gRPC clients plus the connections backing them.
 type Clients struct {
-	Identity     identityv1.IdentityClient
-	Poll         pollv1.PollClient
-	Surprise     surprisev1.SurpriseClient
-	Catalog      catalogv1.CatalogClient
-	Notification notificationv1.NotificationClient
+	Identity     identityv1.IdentityServiceClient
+	Poll         pollv1.PollServiceClient
+	Surprise     surprisev1.SurpriseServiceClient
+	Catalog      catalogv1.CatalogServiceClient
+	Notification notificationv1.NotificationServiceClient
 
 	conns []*grpc.ClientConn
 }
@@ -78,11 +78,11 @@ func Dial(cfg *config.Config) (*Clients, error) {
 		return nil, err
 	}
 
-	c.Identity = identityv1.NewIdentityClient(idConn)
-	c.Poll = pollv1.NewPollClient(pollConn)
-	c.Surprise = surprisev1.NewSurpriseClient(surpriseConn)
-	c.Catalog = catalogv1.NewCatalogClient(catalogConn)
-	c.Notification = notificationv1.NewNotificationClient(notifyConn)
+	c.Identity = identityv1.NewIdentityServiceClient(idConn)
+	c.Poll = pollv1.NewPollServiceClient(pollConn)
+	c.Surprise = surprisev1.NewSurpriseServiceClient(surpriseConn)
+	c.Catalog = catalogv1.NewCatalogServiceClient(catalogConn)
+	c.Notification = notificationv1.NewNotificationServiceClient(notifyConn)
 	return c, nil
 }
 

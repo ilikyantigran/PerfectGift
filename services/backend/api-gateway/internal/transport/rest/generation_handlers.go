@@ -30,7 +30,7 @@ func ideaToDTO(i *surprisev1.Idea) ideaDTO {
 		WhyItFits: i.GetWhyItFits(),
 		RoughCost: i.GetRoughCost(),
 		HowTo:     i.GetHowTo(),
-		Rank:      i.GetRank(),
+		Rank:      int32(i.GetRank()),
 	}
 }
 
@@ -51,7 +51,7 @@ func (s *Server) handleRequestGeneration(w http.ResponseWriter, r *http.Request)
 		BudgetBand:      body.BudgetBand,
 		PreferencesText: body.PreferencesText,
 		PollId:          body.PollID,
-		Tier:            body.Tier,
+		Tier:            surprisev1.ModelTier(surprisev1.ModelTier_value[body.Tier]),
 		IdempotencyKey:  r.Header.Get("Idempotency-Key"),
 	})
 	if err != nil {
@@ -60,7 +60,7 @@ func (s *Server) handleRequestGeneration(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{
 		"request_id": resp.GetRequestId(),
-		"status":     resp.GetStatus(),
+		"status":     resp.GetStatus().String(),
 	})
 }
 
@@ -75,13 +75,12 @@ type generationStatusResponse struct {
 // "ready" also Surprise.GetIdeas — aggregated into one mobile-friendly payload (BFF).
 func (s *Server) handleGetGeneration(w http.ResponseWriter, r *http.Request) {
 	requestID := r.PathValue("id")
-	subject := subjectFrom(r.Context())
 	ctx, cancel := reqCtx(r)
 	defer cancel()
 
+	// user_id is not on these requests — surprise reads it from "x-user-id" metadata (forwarded by reqCtx).
 	statusResp, err := s.opts.Surprise.GetGenerationStatus(ctx, &surprisev1.GetGenerationStatusRequest{
 		RequestId: requestID,
-		UserId:    subject,
 	})
 	if err != nil {
 		writeGRPCError(w, err)
@@ -90,14 +89,13 @@ func (s *Server) handleGetGeneration(w http.ResponseWriter, r *http.Request) {
 
 	out := generationStatusResponse{
 		RequestID: requestID,
-		Status:    statusResp.GetStatus(),
-		Progress:  statusResp.GetProgress(),
+		Status:    statusResp.GetStatus().String(),
+		Progress:  int32(statusResp.GetProgress()),
 	}
 
-	if statusResp.GetStatus() == "ready" {
+	if statusResp.GetStatus() == surprisev1.GenerationStatus_GENERATION_STATUS_READY {
 		ideasResp, err := s.opts.Surprise.GetIdeas(ctx, &surprisev1.GetIdeasRequest{
 			RequestId: requestID,
-			UserId:    subject,
 		})
 		if err != nil {
 			writeGRPCError(w, err)
@@ -127,7 +125,6 @@ func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.opts.Surprise.Refine(ctx, &surprisev1.RefineRequest{
 		RequestId:  requestID,
-		UserId:     subjectFrom(r.Context()),
 		Refinement: body.Refinement,
 	})
 	if err != nil {
@@ -136,7 +133,7 @@ func (s *Server) handleRefine(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{
 		"request_id": resp.GetRequestId(),
-		"status":     resp.GetStatus(),
+		"status":     resp.GetStatus().String(),
 	})
 }
 

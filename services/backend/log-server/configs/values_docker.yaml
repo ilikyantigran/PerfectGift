@@ -1,0 +1,11 @@
+# Config for running in Docker. Same keys as values_local.yaml.
+# The DB path points at a mounted volume so logs survive container restarts.
+log_service:
+  http_port: "8086"
+
+store:
+  path: /data/logs.db
+
+retention:
+  window: 72h
+  interval: 10m

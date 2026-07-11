@@ -1,0 +1,11 @@
+# Config for running locally with `go run` (host paths).
+# Same keys as values_docker.yaml; only the values differ.
+log_service:
+  http_port: "8086"
+
+store:
+  path: ./data/logs.db
+
+retention:
+  window: 72h
+  interval: 10m

@@ -7,6 +7,7 @@
 #
 # Public entrypoint: the gateway on http://localhost:8080 (Swagger at /swagger/).
 # Each service also exposes its own HTTP (Swagger + /metrics) on 8081-8085.
+# Observability: log viewer on http://localhost:8086, Jaeger UI on http://localhost:16686.
 #
 # Internally every domain service listens on gRPC :9090 and HTTP :8080 and is
 # reachable by its compose service name (identity, poll, surprise, catalog,
@@ -17,6 +18,14 @@ name: perfectgift
 x-service-defaults: &service-defaults
   restart: unless-stopped
   networks: [perfectgift]
+
+# Injected into every domain service (via YAML merge): ship logs to the log-server
+# (best-effort, with on-disk spool) and export traces to Jaeger so logs carry a real
+# trace_id. Both are non-mandatory — services boot fine if either is down.
+x-log-env: &log-env
+  LOG_SERVER_URL: http://log-server:8086
+  LOG_SPOOL_DIR: /tmp/logspool
+  OTEL_EXPORTER_OTLP_ENDPOINT: jaeger:4317
 
 services:
   # ---------------------------------------------------------------- infra ---
@@ -64,11 +73,30 @@ services:
       retries: 20
     networks: [perfectgift]
 
+  # ------------------------------------------------------- observability ---
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"                      # Jaeger UI
+      - "4317:4317"                        # OTLP gRPC — services export traces here
+    networks: [perfectgift]
+
+  log-server:
+    <<: *service-defaults
+    build: ./services/backend/log-server
+    ports: ["8086:8086"]                   # <-- log viewer UI + /api
+    volumes:
+      - logdata:/data                       # SQLite log store (survives restarts)
+
   # ------------------------------------------------------------- services ---
   identity:
     <<: *service-defaults
     build: ./services/backend/identity
     ports: ["8081:8080"]                   # host:container (HTTP/Swagger/metrics)
+    environment:
+      <<: *log-env
     depends_on:
       postgres: { condition: service_healthy }
       valkey:   { condition: service_healthy }
@@ -77,6 +105,8 @@ services:
     <<: *service-defaults
     build: ./services/backend/poll
     ports: ["8082:8080"]
+    environment:
+      <<: *log-env
     depends_on:
       postgres: { condition: service_healthy }
       valkey:   { condition: service_healthy }
@@ -87,6 +117,7 @@ services:
     build: ./services/backend/surprise
     ports: ["8083:8080"]
     environment:
+      <<: *log-env
       # Generation calls Anthropic. Without a real key the service still boots,
       # but generation jobs fail at the LLM call. Set it in .env (see .env.example).
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -100,6 +131,7 @@ services:
     build: ./services/backend/catalog
     ports: ["8084:8080"]
     environment:
+      <<: *log-env
       # Empty endpoint in config → deterministic fake embedder, so no key is needed.
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
     depends_on:
@@ -110,6 +142,8 @@ services:
     <<: *service-defaults
     build: ./services/backend/notification
     ports: ["8085:8080"]
+    environment:
+      <<: *log-env
     depends_on:
       postgres: { condition: service_healthy }
       nats:     { condition: service_healthy }
@@ -118,6 +152,8 @@ services:
     <<: *service-defaults
     build: ./services/backend/api-gateway
     ports: ["8080:8080"]                   # <-- public API entrypoint
+    environment:
+      <<: *log-env
     depends_on:
       identity:     { condition: service_started }
       poll:         { condition: service_started }
@@ -127,6 +163,7 @@ services:
 
 volumes:
   pgdata:
+  logdata:
 
 networks:
   perfectgift:

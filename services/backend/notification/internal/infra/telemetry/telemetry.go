@@ -2,8 +2,8 @@
 // structured logging (slog JSON, trace-correlated), distributed tracing
 // (OpenTelemetry → OTLP/Jaeger), and metrics (Prometheus). It is intentionally
 // self-contained and duplicated per service (each is its own Go module and its
-// Docker build context is the service directory). The only thing that varies
-// per service is the serviceName you pass to Setup.
+// Docker build context is the service directory). Copy this file as-is; the only
+// thing that varies per service is the serviceName you pass to Setup.
 package telemetry
 
 import (
@@ -23,7 +23,8 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/trace"
+
+	logkit "github.com/ilikyantigran/PerfectGift/services/backend/notification/internal/logkit"
 )
 
 type Provider struct {
@@ -35,8 +36,10 @@ type Provider struct {
 // metrics registry, and — when OTEL_EXPORTER_OTLP_ENDPOINT is set — an OTLP
 // trace exporter. Call Shutdown on exit.
 func Setup(ctx context.Context, serviceName string) (*Provider, error) {
-	base := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
-	slog.SetDefault(slog.New(&contextHandler{Handler: base}).With("service", serviceName))
+	// logkit installs the JSON slog logger (stdout, trace-correlated) AND ships logs to
+	// the central log-server with on-disk store-and-forward. Stdout-only (non-mandatory)
+	// when LOG_SERVER_URL is unset. Replaces the old inline contextHandler.
+	logFlush := logkit.Install(serviceName)
 
 	res, err := resource.New(ctx, resource.WithAttributes(attribute.String("service.name", serviceName)))
 	if err != nil {
@@ -44,6 +47,7 @@ func Setup(ctx context.Context, serviceName string) (*Provider, error) {
 	}
 
 	p := &Provider{}
+	p.shutdowns = append(p.shutdowns, func(c context.Context) error { logFlush(c); return nil })
 
 	if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
 		exp, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpoint(endpoint), otlptracegrpc.WithInsecure())
@@ -80,26 +84,4 @@ func (p *Provider) Shutdown(ctx context.Context) {
 	for _, fn := range p.shutdowns {
 		_ = fn(ctx)
 	}
-}
-
-// contextHandler enriches every log record with the active trace/span IDs, so
-// logs can be correlated with traces in Jaeger.
-type contextHandler struct{ slog.Handler }
-
-func (h *contextHandler) Handle(ctx context.Context, r slog.Record) error {
-	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
-		r.AddAttrs(
-			slog.String("trace_id", sc.TraceID().String()),
-			slog.String("span_id", sc.SpanID().String()),
-		)
-	}
-	return h.Handler.Handle(ctx, r)
-}
-
-func (h *contextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &contextHandler{Handler: h.Handler.WithAttrs(attrs)}
-}
-
-func (h *contextHandler) WithGroup(name string) slog.Handler {
-	return &contextHandler{Handler: h.Handler.WithGroup(name)}
 }

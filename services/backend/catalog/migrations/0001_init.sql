@@ -75,4 +75,45 @@ CREATE INDEX IF NOT EXISTS inspiration_embedding_hnsw_idx
 CREATE INDEX IF NOT EXISTS inspiration_active_cat_budget_idx
     ON catalog.inspiration (active, category_id, budget_band_id);
 
+-- Seed reference data (idempotent: inserts only when the table is empty), so a
+-- fresh stack gives clients real holidays / categories / budget bands to pick.
+INSERT INTO catalog.holidays (name, date_rule)
+SELECT v.name, v.date_rule
+FROM (VALUES
+    ('Valentine''s Day', 'fixed'),
+    ('Anniversary', 'relative'),
+    ('Birthday', 'relative'),
+    ('Christmas', 'fixed'),
+    ('Mother''s Day', 'relative'),
+    ('Father''s Day', 'relative'),
+    ('New Year''s', 'fixed'),
+    ('Just Because', 'fixed')
+) AS v(name, date_rule)
+WHERE NOT EXISTS (SELECT 1 FROM catalog.holidays);
+
+INSERT INTO catalog.categories (name, kind)
+SELECT v.name, v.kind
+FROM (VALUES
+    ('Experiences', 'gift'),
+    ('Jewelry', 'gift'),
+    ('Tech & Gadgets', 'gift'),
+    ('Books', 'gift'),
+    ('Home & Cozy', 'gift'),
+    ('Restaurant', 'date'),
+    ('Outdoors', 'date'),
+    ('Arts & Culture', 'date'),
+    ('Night In', 'date')
+) AS v(name, kind)
+WHERE NOT EXISTS (SELECT 1 FROM catalog.categories);
+
+INSERT INTO catalog.budget_bands (label, min_cents, max_cents, currency)
+SELECT v.label, v.min_cents, v.max_cents, 'USD'
+FROM (VALUES
+    ('Under $50', 0, 5000),
+    ('$50–$150', 5000, 15000),
+    ('$150–$300', 15000, 30000),
+    ('$300+', 30000, 100000)
+) AS v(label, min_cents, max_cents)
+WHERE NOT EXISTS (SELECT 1 FROM catalog.budget_bands);
+
 COMMIT;

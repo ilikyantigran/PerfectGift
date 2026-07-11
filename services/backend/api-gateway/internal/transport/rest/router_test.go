@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	catalogv1 "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/pkg/api/catalog/v1"
@@ -96,16 +98,22 @@ func TestJWTRoute_RejectsInvalidToken(t *testing.T) {
 func TestGetMe_UsesSubjectFromJWT_NotBody(t *testing.T) {
 	f := newFakes()
 	var gotUserID string
-	f.identity.getMe = func(in *identityv1.GetMeRequest) (*identityv1.GetMeResponse, error) {
-		gotUserID = in.GetUserId()
-		return &identityv1.GetMeResponse{User: &identityv1.User{Id: in.GetUserId(), Email: "a@b.c"}}, nil
+	// GetMeRequest carries no user id: the gateway forwards the JWT subject as
+	// "x-user-id" outgoing metadata, so read it from the context, not the body.
+	f.identity.getMe = func(ctx context.Context, _ *identityv1.GetMeRequest) (*identityv1.GetMeResponse, error) {
+		if md, ok := metadata.FromOutgoingContext(ctx); ok {
+			if v := md.Get("x-user-id"); len(v) > 0 {
+				gotUserID = v[0]
+			}
+		}
+		return &identityv1.GetMeResponse{User: &identityv1.User{Id: gotUserID, Email: "a@b.c"}}, nil
 	}
 	rec := do(t, f.handler(t), http.MethodGet, "/v1/me", "", authHdr())
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	if gotUserID != "user-123" {
-		t.Fatalf("downstream user_id = %q, want the JWT subject user-123", gotUserID)
+		t.Fatalf("downstream x-user-id = %q, want the JWT subject user-123", gotUserID)
 	}
 }
 
@@ -116,12 +124,12 @@ func TestGetMe_UsesSubjectFromJWT_NotBody(t *testing.T) {
 func TestSignIn_Public_RoutesToIdentity(t *testing.T) {
 	f := newFakes()
 	f.identity.signIn = func(in *identityv1.SignInRequest) (*identityv1.SignInResponse, error) {
-		if in.GetProvider() != "google" {
-			t.Errorf("provider = %q", in.GetProvider())
+		if in.GetProvider() != identityv1.Provider_PROVIDER_GOOGLE {
+			t.Errorf("provider = %v", in.GetProvider())
 		}
 		return &identityv1.SignInResponse{AccessToken: "at", RefreshToken: "rt", ExpiresIn: 900}, nil
 	}
-	rec := do(t, f.handler(t), http.MethodPost, "/v1/auth/signin", `{"provider":"google","id_token":"x"}`, nil)
+	rec := do(t, f.handler(t), http.MethodPost, "/v1/auth/signin", `{"provider":"PROVIDER_GOOGLE","id_token":"x"}`, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
@@ -161,7 +169,7 @@ func TestSubmitResponse_Anonymous_NoJWT(t *testing.T) {
 		}
 		return &pollv1.SubmitResponseResponse{Ok: true}, nil
 	}
-	body := `{"answers":[{"question_id":"q1","value":"blue"}]}`
+	body := `{"answers":[{"question_id":"q1","text":"blue"}]}`
 	rec := do(t, f.handler(t), http.MethodPost, "/v1/polls/token/tok/responses", body, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -225,7 +233,7 @@ func TestRequestGeneration_Returns202AndForwardsIdempotencyKey(t *testing.T) {
 	f.surprise.requestGeneration = func(in *surprisev1.RequestGenerationRequest) (*surprisev1.RequestGenerationResponse, error) {
 		gotKey = in.GetIdempotencyKey()
 		gotUser = in.GetUserId()
-		return &surprisev1.RequestGenerationResponse{RequestId: "req-1", Status: "queued"}, nil
+		return &surprisev1.RequestGenerationResponse{RequestId: "req-1", Status: surprisev1.GenerationStatus_GENERATION_STATUS_QUEUED}, nil
 	}
 	rec := do(t, f.handler(t), http.MethodPost, "/v1/generations",
 		`{"holiday_id":"h1","budget_band":"mid","preferences_text":"cozy"}`,
@@ -254,7 +262,7 @@ func TestRequestGeneration_Returns202AndForwardsIdempotencyKey(t *testing.T) {
 func TestGetGeneration_AggregatesIdeasWhenReady(t *testing.T) {
 	f := newFakes()
 	f.surprise.getGenerationStatus = func(*surprisev1.GetGenerationStatusRequest) (*surprisev1.GetGenerationStatusResponse, error) {
-		return &surprisev1.GetGenerationStatusResponse{Status: "ready"}, nil
+		return &surprisev1.GetGenerationStatusResponse{Status: surprisev1.GenerationStatus_GENERATION_STATUS_READY}, nil
 	}
 	ideasCalled := false
 	f.surprise.getIdeas = func(*surprisev1.GetIdeasRequest) (*surprisev1.GetIdeasResponse, error) {
@@ -278,7 +286,7 @@ func TestGetGeneration_AggregatesIdeasWhenReady(t *testing.T) {
 func TestGetGeneration_NoIdeasWhenNotReady(t *testing.T) {
 	f := newFakes()
 	f.surprise.getGenerationStatus = func(*surprisev1.GetGenerationStatusRequest) (*surprisev1.GetGenerationStatusResponse, error) {
-		return &surprisev1.GetGenerationStatusResponse{Status: "running", Progress: 42}, nil
+		return &surprisev1.GetGenerationStatusResponse{Status: surprisev1.GenerationStatus_GENERATION_STATUS_RUNNING, Progress: 42}, nil
 	}
 	f.surprise.getIdeas = func(*surprisev1.GetIdeasRequest) (*surprisev1.GetIdeasResponse, error) {
 		t.Fatal("GetIdeas must not be called while running")
@@ -287,7 +295,7 @@ func TestGetGeneration_NoIdeasWhenNotReady(t *testing.T) {
 	rec := do(t, f.handler(t), http.MethodGet, "/v1/generations/req-1", "", authHdr())
 	var out generationStatusResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	if out.Status != "running" || out.Progress != 42 || len(out.Ideas) != 0 {
+	if out.Status != surprisev1.GenerationStatus_GENERATION_STATUS_RUNNING.String() || out.Progress != 42 || len(out.Ideas) != 0 {
 		t.Fatalf("unexpected: %s", rec.Body.String())
 	}
 }
@@ -318,12 +326,18 @@ func TestDownstreamError_MapsToHTTPStatus(t *testing.T) {
 func TestCreatePoll_InjectsOwnerFromJWT_Returns201(t *testing.T) {
 	f := newFakes()
 	var owner string
-	f.poll.createPoll = func(in *pollv1.CreatePollRequest) (*pollv1.CreatePollResponse, error) {
-		owner = in.GetOwnerUserId()
+	// The owner is no longer on CreatePollRequest; the gateway forwards the JWT
+	// subject as "x-user-id" metadata.
+	f.poll.createPoll = func(ctx context.Context, _ *pollv1.CreatePollRequest) (*pollv1.CreatePollResponse, error) {
+		if md, ok := metadata.FromOutgoingContext(ctx); ok {
+			if v := md.Get("x-user-id"); len(v) > 0 {
+				owner = v[0]
+			}
+		}
 		return &pollv1.CreatePollResponse{PollId: "p1", LinkToken: "tok", LinkUrl: "https://x/tok"}, nil
 	}
 	rec := do(t, f.handler(t), http.MethodPost, "/v1/polls",
-		`{"title":"Q","questions":[{"id":"q1","text":"fav color"}]}`, authHdr())
+		`{"title":"Q","questions":[{"id":"q1","prompt":"fav color"}]}`, authHdr())
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", rec.Code)
 	}

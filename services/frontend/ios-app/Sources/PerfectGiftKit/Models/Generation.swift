@@ -1,7 +1,7 @@
 import Foundation
 
 /// Body for `POST /v1/generations`.
-public struct RequestGenerationRequest: Codable, Sendable, Equatable {
+public struct RequestGenerationRequest: Codable, Sendable, Equatable, Hashable {
     public let holidayId: String?
     public let budgetBand: String?
     public let preferencesText: String?

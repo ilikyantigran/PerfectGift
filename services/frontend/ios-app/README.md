@@ -25,14 +25,16 @@ ios-app/
 │   ├── Auth/                         # TokenStore (Keychain), TokenProvider (refresh)
 │   └── ViewModels/                   # MVVM view models (ObservableObject)
 ├── Tests/PerfectGiftKitTests/    # Swift Testing unit tests against a fake API/transport
-└── App/                          # the iOS app target (open in Xcode)
-    ├── project.yml                   # XcodeGen spec → PerfectGift.xcodeproj
-    ├── PerfectGiftApp.swift          # @main App entry
-    ├── AppDelegate.swift             # APNs registration + push delivery
-    ├── AppEnvironment.swift          # composition root (DI)
-    ├── AppRouter.swift               # universal-link + push navigation intents
-    ├── Views/                        # SwiftUI screens
-    └── Resources/                    # Info.plist, entitlements, Assets.xcassets
+└── PerfectGift/                  # the iOS app (open PerfectGift.xcodeproj in Xcode)
+    ├── PerfectGift.xcodeproj         # the app project (links PerfectGiftKit as a local package)
+    └── PerfectGift/
+        ├── PerfectGiftApp.swift          # @main App entry
+        ├── AppDelegate.swift             # APNs registration + push delivery
+        ├── AppEnvironment.swift          # composition root (DI)
+        ├── AppRouter.swift               # universal-link + push navigation intents
+        ├── Views/                        # SwiftUI screens
+        ├── Assets.xcassets               # app icon + accent color
+        └── Info.plist                    # allows cleartext to localhost for the dev stack
 ```
 
 **Why the split?** All logic worth unit-testing (models, the API client, the view models)
@@ -45,23 +47,21 @@ depend on the package.
 
 ## Open / build / run the app
 
-The app target is generated with [XcodeGen](https://github.com/yonwoo9/XcodeGen) so there is
-no hand-maintained `.xcodeproj` to conflict on:
+The `.xcodeproj` is committed, so there's nothing to generate — just open and run:
 
 ```bash
-brew install xcodegen         # once
-cd App
-xcodegen generate            # produces App/PerfectGift.xcodeproj
-open PerfectGift.xcodeproj    # build & run on a simulator (⌘R)
+open PerfectGift/PerfectGift.xcodeproj
 ```
 
-Requires **Xcode 16+** and **iOS 18+** (deployment target `18.0`). (Sign in with Apple, APNs, and Universal Links need a
-real signing team + provisioning; the app runs in the simulator without them for the
-email-sign-in and generation flows.)
+Then pick the **PerfectGift** scheme + an iPhone simulator and press **⌘R**. The project
+links `PerfectGiftKit` as a local Swift package (`../..`), so it resolves automatically.
 
-If you prefer not to use XcodeGen, create a new iOS App target in Xcode, add the `App/`
-sources, add a local package dependency on this folder (`PerfectGiftKit`), and point
-`INFOPLIST_FILE` / `CODE_SIGN_ENTITLEMENTS` at `App/Resources/`.
+- Requires **Xcode 16+**; deployment target **iOS 18.0** (runs on iOS 18 and newer).
+- **Team: None** works for the simulator — the email-sign-in and generation flows run fully
+  against the local Docker stack (`http://localhost:8080`, allowed via the Info.plist ATS
+  exception). Sign in with Apple, APNs, and Universal Links additionally need a real Apple
+  signing team + provisioning; they're not required for the core flows.
+- Build from the command line (CI): `xcodebuild -project PerfectGift/PerfectGift.xcodeproj -scheme PerfectGift -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`.
 
 ## Pointing at the gateway
 

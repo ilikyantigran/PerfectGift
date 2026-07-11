@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 import PerfectGiftKit
 
 /// Composition root. Builds the single object graph the app uses: config → token store →

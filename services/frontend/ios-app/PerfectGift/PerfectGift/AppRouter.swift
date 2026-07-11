@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 import PerfectGiftKit
 
 /// Cross-cutting navigation intents raised by universal links and push notifications.

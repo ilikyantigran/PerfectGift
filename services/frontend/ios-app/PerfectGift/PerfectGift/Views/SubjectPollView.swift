@@ -33,7 +33,7 @@ struct SubjectPollView: View {
     private var form: some View {
         Form {
             ForEach(viewModel.poll?.questions ?? []) { question in
-                Section(question.text) {
+                Section(question.prompt) {
                     questionInput(question)
                 }
             }
@@ -50,7 +50,7 @@ struct SubjectPollView: View {
 
     @ViewBuilder
     private func questionInput(_ question: Question) -> some View {
-        switch question.kind {
+        switch question.type {
         case .text:
             TextField("Your answer",
                       text: Binding(
@@ -60,14 +60,14 @@ struct SubjectPollView: View {
                 .lineLimit(2...5)
 
         case .singleChoice:
-            ForEach(question.options ?? [], id: \.self) { option in
+            ForEach(question.options ?? []) { option in
                 Button {
-                    viewModel.singleChoice[question.id] = option
+                    viewModel.singleChoice[question.id] = option.id
                 } label: {
                     HStack {
-                        Text(option)
+                        Text(option.label)
                         Spacer()
-                        if viewModel.singleChoice[question.id] == option {
+                        if viewModel.singleChoice[question.id] == option.id {
                             Image(systemName: "checkmark").foregroundStyle(.tint)
                         }
                     }
@@ -76,14 +76,14 @@ struct SubjectPollView: View {
             }
 
         case .multiChoice:
-            ForEach(question.options ?? [], id: \.self) { option in
+            ForEach(question.options ?? []) { option in
                 Button {
-                    viewModel.toggleMultiChoice(questionId: question.id, option: option)
+                    viewModel.toggleMultiChoice(questionId: question.id, option: option.id)
                 } label: {
                     HStack {
-                        Image(systemName: (viewModel.multiChoice[question.id]?.contains(option) ?? false)
+                        Image(systemName: (viewModel.multiChoice[question.id]?.contains(option.id) ?? false)
                               ? "checkmark.square.fill" : "square")
-                        Text(option)
+                        Text(option.label)
                     }
                 }
                 .buttonStyle(.plain)

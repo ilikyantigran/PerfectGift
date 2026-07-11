@@ -1,37 +1,64 @@
 import Foundation
 
-/// A single poll question. `kind` carries the full proto enum name.
-public struct Question: Codable, Sendable, Equatable, Identifiable {
+/// One selectable option for a choice question: a stable `id` (echoed back as a
+/// choice id) plus a human-readable `label`.
+public struct QuestionOption: Codable, Sendable, Equatable, Hashable, Identifiable {
     public let id: String
-    public let text: String
-    public let kind: QuestionKind
-    public let options: [String]?
+    public let label: String
 
-    public init(id: String, text: String, kind: QuestionKind, options: [String]? = nil) {
+    public init(id: String, label: String) {
         self.id = id
-        self.text = text
-        self.kind = kind
-        self.options = options
+        self.label = label
     }
-
-    private enum CodingKeys: String, CodingKey { case id, text, kind, options }
 }
 
-/// A single answer to a question. `value` for text/single-choice, `values` for multi-choice.
+/// A single poll question. `type` carries the full proto enum name; choice questions
+/// carry `options`. Matches the gateway contract: `prompt` / `type` / `options` / `required`.
+public struct Question: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let prompt: String
+    public let type: QuestionKind
+    public let options: [QuestionOption]?
+    public let required: Bool
+
+    public init(id: String, prompt: String, type: QuestionKind, options: [QuestionOption]? = nil, required: Bool = false) {
+        self.id = id
+        self.prompt = prompt
+        self.type = type
+        self.options = options
+        self.required = required
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, prompt, type, options, required }
+
+    // Lenient: the gateway omits `type`/`options`/`required` when empty.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        prompt = try c.decodeIfPresent(String.self, forKey: .prompt) ?? ""
+        type = try c.decodeIfPresent(QuestionKind.self, forKey: .type) ?? .unknown
+        options = try c.decodeIfPresent([QuestionOption].self, forKey: .options)
+        required = try c.decodeIfPresent(Bool.self, forKey: .required) ?? false
+    }
+}
+
+/// A single answer. `text` for TEXT questions; `choiceIds` for choice questions.
+/// Matches the gateway contract: `question_id` / `text` / `choice_ids`.
 public struct Answer: Codable, Sendable, Equatable {
     public let questionId: String
-    public let value: String?
-    public let values: [String]?
+    public let text: String?
+    public let choiceIds: [String]?
 
-    public init(questionId: String, value: String? = nil, values: [String]? = nil) {
+    public init(questionId: String, text: String? = nil, choiceIds: [String]? = nil) {
         self.questionId = questionId
-        self.value = value
-        self.values = values
+        self.text = text
+        self.choiceIds = choiceIds
     }
 
     private enum CodingKeys: String, CodingKey {
-        case value, values
+        case text
         case questionId = "question_id"
+        case choiceIds = "choice_ids"
     }
 }
 

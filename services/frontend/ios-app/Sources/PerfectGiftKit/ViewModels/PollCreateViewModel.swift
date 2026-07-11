@@ -24,11 +24,14 @@ public final class PollCreateViewModel: ObservableObject {
 
     /// A sensible starter set the owner can edit.
     public static let defaultQuestions: [Question] = [
-        Question(id: "q_budget", text: "Roughly how much should I spend?", kind: .singleChoice,
-                 options: ["Under $50", "$50–150", "$150–400", "Sky's the limit"]),
-        Question(id: "q_vibe", text: "What's the vibe?", kind: .multiChoice,
-                 options: ["Cozy", "Adventurous", "Luxurious", "Handmade", "Experiences"]),
-        Question(id: "q_notes", text: "Anything I should absolutely avoid?", kind: .text)
+        Question(id: "q_budget", prompt: "Roughly how much should I spend?", type: .singleChoice,
+                 options: [.init(id: "b1", label: "Under $50"), .init(id: "b2", label: "$50–150"),
+                           .init(id: "b3", label: "$150–400"), .init(id: "b4", label: "Sky's the limit")]),
+        Question(id: "q_vibe", prompt: "What's the vibe?", type: .multiChoice,
+                 options: [.init(id: "v1", label: "Cozy"), .init(id: "v2", label: "Adventurous"),
+                           .init(id: "v3", label: "Luxurious"), .init(id: "v4", label: "Handmade"),
+                           .init(id: "v5", label: "Experiences")]),
+        Question(id: "q_notes", prompt: "Anything I should absolutely avoid?", type: .text)
     ]
 
     public var shareURL: URL? {

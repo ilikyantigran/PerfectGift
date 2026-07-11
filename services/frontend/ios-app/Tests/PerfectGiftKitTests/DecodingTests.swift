@@ -86,9 +86,9 @@ import Foundation
     }
 
     @Test func questionKindLenientDecoding() throws {
-        let json = #"{ "id": "q1", "text": "Vibe?", "kind": "QUESTION_TYPE_MULTI_CHOICE", "options": ["A","B"] }"#.data(using: .utf8)!
+        let json = #"{ "id": "q1", "prompt": "Vibe?", "type": "QUESTION_TYPE_MULTI_CHOICE", "options": [{"id":"a","label":"A"},{"id":"b","label":"B"}], "required": true }"#.data(using: .utf8)!
         let q = try decoder.decode(Question.self, from: json)
-        #expect(q.kind == .multiChoice)
-        #expect(q.kind.isChoice)
+        #expect(q.type == .multiChoice)
+        #expect(q.type.isChoice)
     }
 }

@@ -119,25 +119,27 @@ import Foundation
     @Test func subjectPollBuildsAnswersAndSubmits() async {
         let fake = FakeAPIClient()
         fake.pollByTokenResult = .success(PollByToken(pollId: "p1", title: "T", questions: [
-            Question(id: "q_notes", text: "Avoid?", kind: .text),
-            Question(id: "q_budget", text: "Budget?", kind: .singleChoice, options: ["Low", "High"]),
-            Question(id: "q_vibe", text: "Vibe?", kind: .multiChoice, options: ["Cozy", "Bold"])
+            Question(id: "q_notes", prompt: "Avoid?", type: .text),
+            Question(id: "q_budget", prompt: "Budget?", type: .singleChoice,
+                     options: [.init(id: "low", label: "Low"), .init(id: "high", label: "High")]),
+            Question(id: "q_vibe", prompt: "Vibe?", type: .multiChoice,
+                     options: [.init(id: "cozy", label: "Cozy"), .init(id: "bold", label: "Bold")])
         ]))
         let vm = SubjectPollViewModel(api: fake, token: "tok")
         await vm.load()
         #expect(vm.phase == .ready)
 
         vm.textAnswers["q_notes"] = "No chocolate"
-        vm.singleChoice["q_budget"] = "High"
-        vm.toggleMultiChoice(questionId: "q_vibe", option: "Cozy")
-        vm.toggleMultiChoice(questionId: "q_vibe", option: "Bold")
-        vm.toggleMultiChoice(questionId: "q_vibe", option: "Bold") // toggle off
+        vm.singleChoice["q_budget"] = "high"
+        vm.toggleMultiChoice(questionId: "q_vibe", option: "cozy")
+        vm.toggleMultiChoice(questionId: "q_vibe", option: "bold")
+        vm.toggleMultiChoice(questionId: "q_vibe", option: "bold") // toggle off
 
         let answers = vm.buildAnswers()
         #expect(answers.count == 3)
-        #expect(answers.first(where: { $0.questionId == "q_notes" })?.value == "No chocolate")
-        #expect(answers.first(where: { $0.questionId == "q_budget" })?.value == "High")
-        #expect(answers.first(where: { $0.questionId == "q_vibe" })?.values == ["Cozy"])
+        #expect(answers.first(where: { $0.questionId == "q_notes" })?.text == "No chocolate")
+        #expect(answers.first(where: { $0.questionId == "q_budget" })?.choiceIds == ["high"])
+        #expect(answers.first(where: { $0.questionId == "q_vibe" })?.choiceIds == ["cozy"])
 
         await vm.submit()
         #expect(vm.phase == .submitted)

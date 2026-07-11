@@ -31,13 +31,17 @@ struct PollCreateView: View {
             Section("Title") {
                 TextField("Poll title", text: $viewModel.title)
             }
-            Section("Questions") {
+            Section {
                 ForEach(viewModel.questions) { q in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(q.text).font(.subheadline)
-                        Text(kindLabel(q.kind)).font(.caption).foregroundStyle(.secondary)
+                        Text(q.prompt).font(.subheadline)
+                        Text(typeLabel(q.type)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+            } header: {
+                Text("Questions your partner will answer")
+            } footer: {
+                Text("A ready-made set for now — editable custom questions are coming soon.")
             }
             Section {
                 Button {
@@ -83,8 +87,8 @@ struct PollCreateView: View {
         }
     }
 
-    private func kindLabel(_ kind: QuestionKind) -> String {
-        switch kind {
+    private func typeLabel(_ type: QuestionKind) -> String {
+        switch type {
         case .text:         return "Free text"
         case .singleChoice: return "Single choice"
         case .multiChoice:  return "Multiple choice"

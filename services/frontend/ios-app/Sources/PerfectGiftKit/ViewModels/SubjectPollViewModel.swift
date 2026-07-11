@@ -48,16 +48,16 @@ public final class SubjectPollViewModel: ObservableObject {
     public func buildAnswers() -> [Answer] {
         guard let poll else { return [] }
         return poll.questions.compactMap { q in
-            switch q.kind {
+            switch q.type {
             case .text:
                 let v = (textAnswers[q.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                return v.isEmpty ? nil : Answer(questionId: q.id, value: v)
+                return v.isEmpty ? nil : Answer(questionId: q.id, text: v)
             case .singleChoice:
-                guard let v = singleChoice[q.id] else { return nil }
-                return Answer(questionId: q.id, value: v)
+                guard let id = singleChoice[q.id] else { return nil }
+                return Answer(questionId: q.id, choiceIds: [id])
             case .multiChoice:
-                let vals = Array(multiChoice[q.id] ?? [])
-                return vals.isEmpty ? nil : Answer(questionId: q.id, values: vals)
+                let ids = Array(multiChoice[q.id] ?? [])
+                return ids.isEmpty ? nil : Answer(questionId: q.id, choiceIds: ids)
             case .unknown:
                 return nil
             }

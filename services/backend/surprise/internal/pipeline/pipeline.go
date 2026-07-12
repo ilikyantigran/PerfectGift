@@ -83,7 +83,7 @@ func (p *Pipeline) Run(ctx context.Context, job events.GenerationRequested) erro
 			Tier:        tierFor(req.Tier),
 		})
 		if gerr != nil {
-			slog.Error("generation failed", "request_id", req.ID, "err", gerr)
+			slog.ErrorContext(ctx, "generation failed", "request_id", req.ID, "err", gerr)
 			p.fail(ctx, req.ID)
 			return nil
 		}
@@ -96,7 +96,7 @@ func (p *Pipeline) Run(ctx context.Context, job events.GenerationRequested) erro
 	// Step 6: moderate (Haiku) + validate + rank.
 	ideas := p.moderateValidateRank(ctx, req, candidates)
 	if len(ideas) == 0 {
-		slog.Warn("no ideas survived moderation/validation", "request_id", req.ID)
+		slog.WarnContext(ctx, "no ideas survived moderation/validation", "request_id", req.ID)
 		p.fail(ctx, req.ID)
 		return nil
 	}
@@ -135,7 +135,7 @@ func (p *Pipeline) gatherPoll(ctx context.Context, pollID string) []string {
 	}
 	answers, err := p.poll.GetResponses(ctx, pollID)
 	if err != nil {
-		slog.Warn("poll grounding unavailable, degrading", "poll_id", pollID, "err", err)
+		slog.WarnContext(ctx, "poll grounding unavailable, degrading", "poll_id", pollID, "err", err)
 		return nil
 	}
 	return answers
@@ -147,7 +147,7 @@ func (p *Pipeline) gatherCatalog(ctx context.Context, req *domain.Request, embed
 	}
 	snippets, err := p.catalog.SearchInspiration(ctx, groundingQuery(req), embedding, req.BudgetBand, p.cfg.IdeasWanted)
 	if err != nil {
-		slog.Warn("catalog grounding unavailable, degrading", "err", err)
+		slog.WarnContext(ctx, "catalog grounding unavailable, degrading", "err", err)
 		return nil
 	}
 	return snippets
@@ -164,7 +164,7 @@ func (p *Pipeline) moderateValidateRank(ctx context.Context, req *domain.Request
 		}
 		approved, err := p.llm.Moderate(ctx, c.Title+". "+c.WhyItFits+". "+c.HowTo)
 		if err != nil {
-			slog.Warn("moderation error, dropping candidate", "err", err)
+			slog.WarnContext(ctx, "moderation error, dropping candidate", "err", err)
 			continue
 		}
 		if !approved {
@@ -190,7 +190,7 @@ func (p *Pipeline) moderateValidateRank(ctx context.Context, req *domain.Request
 
 func (p *Pipeline) setStatus(ctx context.Context, id string, s domain.Status, progress int) {
 	if err := p.cache.SetStatus(ctx, id, domain.StatusInfo{Status: s, Progress: progress}, p.cfg.StatusTTL); err != nil {
-		slog.Warn("set status cache failed", "request_id", id, "err", err)
+		slog.WarnContext(ctx, "set status cache failed", "request_id", id, "err", err)
 	}
 	if s == domain.StatusRunning {
 		_ = p.repo.SetRequestStatus(ctx, id, s)

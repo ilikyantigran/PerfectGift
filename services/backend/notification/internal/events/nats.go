@@ -83,7 +83,9 @@ func (s *subscription) Consume(ctx context.Context, deliver func(context.Context
 	}
 
 	cc, err := cons.Consume(func(m jetstream.Msg) {
-		mctx := otel.GetTextMapPropagator().Extract(context.Background(), propagation.HeaderCarrier(m.Headers()))
+		// Extract into the live ctx (not context.Background()) so deliver keeps the
+		// app's cancellation while staying parented to the producer's remote span.
+		mctx := otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(m.Headers()))
 		mctx, span := otel.Tracer("nats").Start(mctx, "consume "+s.subject, trace.WithSpanKind(trace.SpanKindConsumer))
 		defer span.End()
 		deliver(mctx, &message{m: m})

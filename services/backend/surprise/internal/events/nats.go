@@ -88,18 +88,20 @@ func (b *NATSBus) PublishIdeasReady(ctx context.Context, evt IdeasReady) error {
 // headers (injected by PublishGenerationRequested) is extracted and used to start
 // a consumer span, so the handler — and every log it emits — is linked back to the
 // request that produced the job instead of running under a fresh, span-less context.
-func (b *NATSBus) ConsumeGenerationRequested(_ context.Context, h Handler) error {
+func (b *NATSBus) ConsumeGenerationRequested(ctx context.Context, h Handler) error {
 	_, err := b.js.QueueSubscribe(b.cfg.RequestSubject, b.cfg.DurableName, func(msg *nats.Msg) {
 		var job GenerationRequested
 		if err := unmarshal(msg.Data, &job); err != nil {
 			_ = msg.Term()
 			return
 		}
-		mctx := otel.GetTextMapPropagator().Extract(context.Background(), propagation.HeaderCarrier(msg.Header))
+		// Extract into the live subscription ctx (not context.Background()) so the
+		// handler keeps the app's cancellation/deadline for graceful shutdown while
+		// still being parented to the remote span carried in the message headers.
+		mctx := otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(msg.Header))
 		mctx, span := otel.Tracer("nats").Start(mctx, "consume "+b.cfg.RequestSubject, trace.WithSpanKind(trace.SpanKindConsumer))
-		err := h(mctx, job)
-		span.End()
-		if err != nil {
+		defer span.End() // ended even if the handler panics, so the span never leaks
+		if err := h(mctx, job); err != nil {
 			_ = msg.Nak()
 			return
 		}

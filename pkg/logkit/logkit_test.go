@@ -181,6 +181,43 @@ func TestErrorAttrRendersAsMessage(t *testing.T) {
 	}
 }
 
+// structuredErr is an error that ALSO implements json.Marshaler.
+type structuredErr struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+}
+
+func (e structuredErr) Error() string { return e.Msg }
+func (e structuredErr) MarshalJSON() ([]byte, error) {
+	type alias structuredErr
+	return json.Marshal(alias(e))
+}
+
+// TestJSONMarshalerErrorShipsStructurally proves that an error which also
+// implements json.Marshaler is shipped as its structured JSON (matching slog's
+// own JSON handler), NOT flattened to its .Error() string.
+func TestJSONMarshalerErrorShipsStructurally(t *testing.T) {
+	srv := newIngestServer(t)
+	var stdout bytes.Buffer
+	h := NewHandler("identity", testOptions(t, srv.URL, &stdout))
+	t.Cleanup(func() { h.Close(context.Background()) })
+
+	slog.New(h).InfoContext(ctxWithSpan(t), "upstream down", slog.Any("err", structuredErr{Code: 503, Msg: "down"}))
+	h.Flush(context.Background())
+
+	recs := srv.got()
+	if len(recs) != 1 {
+		t.Fatalf("want 1 record shipped, got %d", len(recs))
+	}
+	m, ok := recs[0].Fields["err"].(map[string]any)
+	if !ok {
+		t.Fatalf("fields.err: want structured object, got %v (%T)", recs[0].Fields["err"], recs[0].Fields["err"])
+	}
+	if m["msg"] != "down" || m["code"] != float64(503) {
+		t.Errorf("fields.err: want {code:503, msg:down}, got %v", m)
+	}
+}
+
 // TestServerDownSpoolsThenBackfills proves store-and-forward: while the server
 // is down records land in the spool file; when it recovers the spool is drained
 // and truncated, with nothing lost.

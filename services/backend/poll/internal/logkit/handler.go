@@ -17,6 +17,7 @@ package logkit
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 
 	"go.opentelemetry.io/otel/trace"
@@ -219,7 +220,16 @@ func putAttr(fields map[string]any, groups []string, attr slog.Attr) {
 		return
 	}
 
-	dst[attr.Key] = attr.Value.Any()
+	v := attr.Value.Any()
+	// Match slog's own JSONHandler: render an error as its .Error() string, UNLESS
+	// it also implements json.Marshaler (then let it marshal structurally). Without
+	// this an error would JSON-encode to {} in the shipped record.
+	if err, ok := v.(error); ok {
+		if _, isJSONMarshaler := v.(json.Marshaler); !isJSONMarshaler {
+			v = err.Error()
+		}
+	}
+	dst[attr.Key] = v
 }
 
 // child returns the nested map at key within m, creating it if absent (or if a

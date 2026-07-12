@@ -219,7 +219,11 @@ func putAttr(fields map[string]any, groups []string, attr slog.Attr) {
 		return
 	}
 
-	dst[attr.Key] = attr.Value.Any()
+	v := attr.Value.Any()
+	if err, ok := v.(error); ok {
+		v = err.Error()
+	}
+	dst[attr.Key] = v
 }
 
 // child returns the nested map at key within m, creating it if absent (or if a

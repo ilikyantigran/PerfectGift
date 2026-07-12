@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -153,6 +154,30 @@ func TestShipsToServerWhenUp(t *testing.T) {
 	}
 	if !strings.HasSuffix(r.Ts, "Z") {
 		t.Errorf("ts not UTC (no trailing Z): %q", r.Ts)
+	}
+}
+
+// TestErrorAttrRendersAsMessage proves error-valued attrs ship as their
+// .Error() string rather than the raw error value, which JSON-marshals to
+// {} for most error implementations (matching slog's own JSON handler
+// behaviour for stdout).
+func TestErrorAttrRendersAsMessage(t *testing.T) {
+	srv := newIngestServer(t)
+	var stdout bytes.Buffer
+	h := NewHandler("identity", testOptions(t, srv.URL, &stdout))
+	t.Cleanup(func() { h.Close(context.Background()) })
+
+	log := slog.New(h)
+	log.InfoContext(ctxWithSpan(t), "failed to dial", slog.Any("err", errors.New("boom")))
+
+	h.Flush(context.Background())
+
+	recs := srv.got()
+	if len(recs) != 1 {
+		t.Fatalf("want 1 record shipped, got %d", len(recs))
+	}
+	if got := recs[0].Fields["err"]; got != "boom" {
+		t.Errorf("fields.err: want %q, got %v (%T)", "boom", got, got)
 	}
 }
 

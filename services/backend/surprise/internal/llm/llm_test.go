@@ -150,13 +150,27 @@ func TestResilientOpensBreaker(t *testing.T) {
 	}
 }
 
+func TestEmitIdeasInputToleratesStringifiedObject(t *testing.T) {
+	// Observed live: the model double-encodes the whole {"ideas":[...]} wrapper
+	// into a single JSON string. The recursive decoder must unwrap string -> object
+	// -> inner array and recover the ideas.
+	in := `{"ideas":"{\"ideas\":[{\"title\":\"Picnic\",\"why_it_fits\":\"outdoorsy\",\"rough_cost\":\"$50\",\"how_to\":\"pack a basket\"}]}"}`
+	var got emitIdeasInput
+	if err := json.Unmarshal([]byte(in), &got); err != nil {
+		t.Fatalf("decode stringified-object: %v", err)
+	}
+	if len(got.Ideas) != 1 || got.Ideas[0].Title != "Picnic" {
+		t.Fatalf("unexpected decoded ideas: %#v", got.Ideas)
+	}
+}
+
 func TestDescribeIdeasShapeIsPIIFree(t *testing.T) {
 	cases := map[string]string{
-		`{"ideas":[{"title":"x"}]}`:                    "array[len=1, elem=object]",
-		`{"ideas":{"title":"x","why_it_fits":"y"}}`:    "object{keys=[title why_it_fits]}",
-		`{"ideas":{"ideas":[{"title":"x"}]}}`:          "object{keys=[ideas]}",
-		`{"ideas":"[{\"title\":\"x\"}]"}`:              "string(len=21)",
-		`{"foo":1}`:                                    "no 'ideas' key; input=object{keys=[foo]}",
+		`{"ideas":[{"title":"x"}]}`:                 "array[len=1, elem=object]",
+		`{"ideas":{"title":"x","why_it_fits":"y"}}`: "object{keys=[title why_it_fits]}",
+		`{"ideas":{"ideas":[{"title":"x"}]}}`:       "object{keys=[ideas]}",
+		`{"ideas":"[{\"title\":\"x\"}]"}`:           "string(len=15)\u2192array[len=1, elem=object]",
+		`{"foo":1}`:                                 "no 'ideas' key; input=object{keys=[foo]}",
 	}
 	for in, want := range cases {
 		if got := describeIdeasShape([]byte(in)); got != want {

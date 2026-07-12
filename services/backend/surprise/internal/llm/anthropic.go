@@ -80,12 +80,12 @@ func (c *AnthropicClient) model(t Tier) string {
 // --- wire types (Messages API) ---
 
 type messagesRequest struct {
-	Model      string           `json:"model"`
-	MaxTokens  int              `json:"max_tokens"`
-	System     string           `json:"system,omitempty"`
-	Messages   []messageParam   `json:"messages"`
-	Tools      []toolDef        `json:"tools,omitempty"`
-	ToolChoice *toolChoice      `json:"tool_choice,omitempty"`
+	Model      string         `json:"model"`
+	MaxTokens  int            `json:"max_tokens"`
+	System     string         `json:"system,omitempty"`
+	Messages   []messageParam `json:"messages"`
+	Tools      []toolDef      `json:"tools,omitempty"`
+	ToolChoice *toolChoice    `json:"tool_choice,omitempty"`
 }
 
 type messageParam struct {
@@ -148,10 +148,10 @@ const maxIdeasDecodeDepth = 3
 // decodeIdeasField decodes the "ideas" field of the emit_ideas tool input,
 // tolerating every shape the model has been observed to emit:
 //
-//	1. a plain JSON array                        [{...},{...}]           (happy path)
-//	2. a JSON-encoded string of that array       "[{...},{...}]"         (stringified)
-//	3. a wrapper object carrying the array        {"ideas":[{...}]}       (unwrap one level)
-//	4. a single idea object                       {"title":...,...}       (wrap as one element)
+//  1. a plain JSON array                        [{...},{...}]           (happy path)
+//  2. a JSON-encoded string of that array       "[{...},{...}]"         (stringified)
+//  3. a wrapper object carrying the array        {"ideas":[{...}]}       (unwrap one level)
+//  4. a single idea object                       {"title":...,...}       (wrap as one element)
 //
 // The array and stringified-array paths are tried first and unchanged. If none
 // match, the original array-decode error is returned (it best describes the
@@ -174,36 +174,33 @@ func decodeIdeasFieldDepth(raw json.RawMessage, depth int) ([]Idea, error) {
 		return ideas, nil
 	}
 
-	// Not a bare array — try the stringified-array case: raw is a JSON string that
-	// itself contains the array. If the unquote succeeds, the inner decode error
-	// (if any) is the actionable one, so surface it rather than the outer arrErr.
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		if innerErr := json.Unmarshal([]byte(s), &ideas); innerErr != nil {
-			return nil, innerErr
+	// Beyond a bare array, the model has been observed wrapping the ideas in extra
+	// layers (a stringified payload, or an object). Peel those recursively, bounded
+	// by depth so pathological nesting can't recurse forever.
+	if depth < maxIdeasDecodeDepth {
+		// Stringified: raw is a JSON string whose CONTENT is the real value — an
+		// array, an object, or a {"ideas":[...]} wrapper. Decode that content through
+		// the full decoder rather than assuming an array, since the model has been
+		// seen double-encoding the entire wrapper into a single string.
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			return decodeIdeasFieldDepth([]byte(s), depth+1)
 		}
-		return ideas, nil
-	}
 
-	// Object shapes: the model has been observed returning "ideas" as a JSON
-	// object rather than an array. Two variants are handled, in order:
-	//   (a) a wrapper object carrying the array, e.g. {"ideas":[...]} — unwrap one
-	//       level and decode its inner "ideas" field (recursively, depth-bounded);
-	//   (b) a single idea object, e.g. {"title":...,"why_it_fits":...} — wrap it as
-	//       a one-element []Idea.
-	if depth < maxIdeasDecodeDepth && isJSONObject(raw) {
-		// (a) wrapper object.
-		var wrapper struct {
-			Ideas json.RawMessage `json:"ideas"`
-		}
-		if err := json.Unmarshal(raw, &wrapper); err == nil && len(wrapper.Ideas) > 0 {
-			return decodeIdeasFieldDepth(wrapper.Ideas, depth+1)
-		}
-		// (b) single idea object — only accept a non-empty idea so an unrelated
-		// empty/foreign object still falls through to the error below.
-		var single Idea
-		if err := json.Unmarshal(raw, &single); err == nil && single != (Idea{}) {
-			return []Idea{single}, nil
+		if isJSONObject(raw) {
+			// (a) wrapper object carrying the array, e.g. {"ideas":[...]}.
+			var wrapper struct {
+				Ideas json.RawMessage `json:"ideas"`
+			}
+			if err := json.Unmarshal(raw, &wrapper); err == nil && len(wrapper.Ideas) > 0 {
+				return decodeIdeasFieldDepth(wrapper.Ideas, depth+1)
+			}
+			// (b) single idea object, e.g. {"title":...}. Only accept a non-empty
+			// idea so an unrelated empty/foreign object still errors below.
+			var single Idea
+			if err := json.Unmarshal(raw, &single); err == nil && single != (Idea{}) {
+				return []Idea{single}, nil
+			}
 		}
 	}
 
@@ -266,6 +263,15 @@ func describeJSONShape(raw json.RawMessage) string {
 		}
 		return fmt.Sprintf("array[len=%d, elem=%s]", len(a), jsonKind(a[0]))
 	case "string":
+		// Peek inside: the model sometimes stringifies structured JSON. If the
+		// content is itself an object/array, describe THAT too (still PII-free).
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			inner := json.RawMessage(strings.TrimSpace(s))
+			if k := jsonKind(inner); k == "object" || k == "array" {
+				return fmt.Sprintf("string(len=%d)→%s", len(s), describeJSONShape(inner))
+			}
+		}
 		return fmt.Sprintf("string(len=%d)", len(bytes.TrimSpace(raw)))
 	default:
 		return jsonKind(raw)

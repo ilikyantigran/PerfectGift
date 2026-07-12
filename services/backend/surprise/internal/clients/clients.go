@@ -84,12 +84,26 @@ func DialCatalog(addr string) (*catalogClient, error) {
 func (c *catalogClient) Close() error { return c.conn.Close() }
 
 func (c *catalogClient) SearchInspiration(ctx context.Context, queryText string, embedding []float32, budget string, topK int) ([]string, error) {
-	resp, err := c.c.SearchInspiration(ctx, &catalogv1.SearchInspirationRequest{
-		QueryText:      queryText,
-		QueryEmbedding: embedding,
-		Budget:         budget,
-		TopK:           uint32(topK),
-	})
+	req := &catalogv1.SearchInspirationRequest{
+		Budget: budget,
+		TopK:   uint32(topK),
+	}
+	// Catalog's contract requires EXACTLY ONE of query_text / query_embedding
+	// (InvalidArgument otherwise). Prefer the embedding when we have one — it's
+	// the richer signal and triggers catalog's vector search — falling back to
+	// the text query only when no embedding was computed.
+	switch {
+	case len(embedding) > 0:
+		req.QueryEmbedding = embedding
+	case queryText != "":
+		req.QueryText = queryText
+	default:
+		// No query signal at all (embedder failed AND no text). Catalog would
+		// reject an all-empty request, so skip grounding cleanly instead — the
+		// caller treats a nil result as "no grounding" and degrades gracefully.
+		return nil, nil
+	}
+	resp, err := c.c.SearchInspiration(ctx, req)
 	if err != nil {
 		return nil, err
 	}

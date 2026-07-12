@@ -114,9 +114,51 @@ type contentBlock struct {
 	Input json.RawMessage `json:"input"`
 }
 
-// emitIdeasInput is the tool schema payload Claude fills in.
+// emitIdeasInput is the tool schema payload Claude fills in. Ideas is decoded
+// leniently: the tool schema declares "ideas" as a JSON array, but Claude has
+// been observed to occasionally return it as a JSON-encoded string containing
+// that array instead (a stringified array). Both shapes decode to the same
+// []Idea via the custom UnmarshalJSON below.
 type emitIdeasInput struct {
-	Ideas []Idea `json:"ideas"`
+	Ideas []Idea `json:"-"`
+}
+
+func (in *emitIdeasInput) UnmarshalJSON(data []byte) error {
+	var wrapper struct {
+		Ideas json.RawMessage `json:"ideas"`
+	}
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		return err
+	}
+	ideas, err := decodeIdeasField(wrapper.Ideas)
+	if err != nil {
+		return err
+	}
+	in.Ideas = ideas
+	return nil
+}
+
+// decodeIdeasField decodes the "ideas" field of the emit_ideas tool input. The
+// happy path is a plain JSON array. If that fails, it tries treating the raw
+// value as a JSON-encoded string and decoding the array from inside that
+// string (the stringified-array case seen in production). If neither works,
+// the original array-decode error is returned since it best describes the
+// expected shape.
+func decodeIdeasField(raw json.RawMessage) ([]Idea, error) {
+	var ideas []Idea
+	arrErr := json.Unmarshal(raw, &ideas)
+	if arrErr == nil {
+		return ideas, nil
+	}
+
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if err := json.Unmarshal([]byte(s), &ideas); err == nil {
+			return ideas, nil
+		}
+	}
+
+	return nil, arrErr
 }
 
 // GenerateIdeas builds a structured prompt and forces the emit_ideas tool so the

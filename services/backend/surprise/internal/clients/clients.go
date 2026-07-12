@@ -92,10 +92,16 @@ func (c *catalogClient) SearchInspiration(ctx context.Context, queryText string,
 	// (InvalidArgument otherwise). Prefer the embedding when we have one — it's
 	// the richer signal and triggers catalog's vector search — falling back to
 	// the text query only when no embedding was computed.
-	if len(embedding) > 0 {
+	switch {
+	case len(embedding) > 0:
 		req.QueryEmbedding = embedding
-	} else {
+	case queryText != "":
 		req.QueryText = queryText
+	default:
+		// No query signal at all (embedder failed AND no text). Catalog would
+		// reject an all-empty request, so skip grounding cleanly instead — the
+		// caller treats a nil result as "no grounding" and degrades gracefully.
+		return nil, nil
 	}
 	resp, err := c.c.SearchInspiration(ctx, req)
 	if err != nil {

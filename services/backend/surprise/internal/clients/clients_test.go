@@ -61,3 +61,39 @@ func TestCatalogClientSearchInspiration_FallsBackToQueryTextWhenNoEmbedding(t *t
 		t.Errorf("expected empty QueryEmbedding when no embedding given, got %v", stub.gotReq.GetQueryEmbedding())
 	}
 }
+
+// An empty-but-non-nil embedding must be treated as "no embedding" (the check is
+// len()>0, not != nil), so we fall through to the text query rather than sending
+// an empty embedding.
+func TestCatalogClientSearchInspiration_EmptyNonNilEmbeddingUsesText(t *testing.T) {
+	stub := &stubCatalogServiceClient{}
+	c := &catalogClient{c: stub}
+
+	if _, err := c.SearchInspiration(context.Background(), "birthday gifts", []float32{}, "mid", 5); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stub.gotReq.GetQueryText() != "birthday gifts" {
+		t.Errorf("expected QueryText for empty non-nil embedding, got %q", stub.gotReq.GetQueryText())
+	}
+	if len(stub.gotReq.GetQueryEmbedding()) != 0 {
+		t.Errorf("expected empty QueryEmbedding, got %v", stub.gotReq.GetQueryEmbedding())
+	}
+}
+
+// With neither an embedding nor a text query, catalog would reject the request,
+// so the client must skip the call entirely and return no grounding (no error).
+func TestCatalogClientSearchInspiration_SkipsCallWhenNoQuerySignal(t *testing.T) {
+	stub := &stubCatalogServiceClient{}
+	c := &catalogClient{c: stub}
+
+	out, err := c.SearchInspiration(context.Background(), "", nil, "mid", 5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out != nil {
+		t.Errorf("expected nil snippets when no query signal, got %v", out)
+	}
+	if stub.gotReq != nil {
+		t.Error("expected NO downstream catalog call when both query_text and embedding are empty")
+	}
+}

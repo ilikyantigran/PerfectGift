@@ -23,6 +23,7 @@ import (
 	"github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/internal/infra/config"
 	"github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/internal/infra/docs"
 	"github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/internal/infra/telemetry"
+	logkit "github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/internal/logkit"
 	"github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/internal/ratelimit"
 	"github.com/ilikyantigran/PerfectGift/services/backend/api-gateway/internal/transport/rest"
 )
@@ -94,7 +95,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	a.httpServer = &http.Server{
 		Addr:              fmt.Sprintf(":%s", a.config.Service.HttpPort),
-		Handler:           otelhttp.NewHandler(mux, "gateway"),
+		Handler:           otelhttp.NewHandler(logkit.HTTPMiddleware(mux), "gateway"),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

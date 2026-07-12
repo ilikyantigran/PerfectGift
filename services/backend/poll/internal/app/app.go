@@ -17,6 +17,7 @@ import (
 	"github.com/ilikyantigran/PerfectGift/services/backend/poll/internal/infra/config"
 	"github.com/ilikyantigran/PerfectGift/services/backend/poll/internal/infra/docs"
 	"github.com/ilikyantigran/PerfectGift/services/backend/poll/internal/infra/telemetry"
+	logkit "github.com/ilikyantigran/PerfectGift/services/backend/poll/internal/logkit"
 	pollv1 "github.com/ilikyantigran/PerfectGift/services/backend/poll/pkg/api/poll/v1"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -90,7 +91,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	a.grpcServer = grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
-		grpc.ChainUnaryInterceptor(authn.Unary()),
+		grpc.ChainUnaryInterceptor(logkit.UnaryServerInterceptor(), authn.Unary()),
 	)
 	reflection.Register(a.grpcServer)
 	pollv1.RegisterPollServiceServer(a.grpcServer, srv)

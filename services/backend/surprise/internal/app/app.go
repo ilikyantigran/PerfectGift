@@ -28,6 +28,7 @@ import (
 	"github.com/ilikyantigran/PerfectGift/services/backend/surprise/internal/infra/docs"
 	"github.com/ilikyantigran/PerfectGift/services/backend/surprise/internal/infra/telemetry"
 	"github.com/ilikyantigran/PerfectGift/services/backend/surprise/internal/llm"
+	logkit "github.com/ilikyantigran/PerfectGift/services/backend/surprise/internal/logkit"
 	"github.com/ilikyantigran/PerfectGift/services/backend/surprise/internal/pipeline"
 	"github.com/ilikyantigran/PerfectGift/services/backend/surprise/internal/resilience"
 	surprisev1 "github.com/ilikyantigran/PerfectGift/services/backend/surprise/pkg/api/surprise/v1"
@@ -141,7 +142,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("grpc listener: %w", err)
 	}
-	a.grpcServer = grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	a.grpcServer = grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.ChainUnaryInterceptor(logkit.UnaryServerInterceptor()))
 	reflection.Register(a.grpcServer)
 	surprisev1.RegisterSurpriseServiceServer(a.grpcServer, srv)
 

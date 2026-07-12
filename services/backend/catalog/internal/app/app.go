@@ -16,6 +16,7 @@ import (
 	"github.com/ilikyantigran/PerfectGift/services/backend/catalog/internal/infra/config"
 	"github.com/ilikyantigran/PerfectGift/services/backend/catalog/internal/infra/docs"
 	"github.com/ilikyantigran/PerfectGift/services/backend/catalog/internal/infra/telemetry"
+	logkit "github.com/ilikyantigran/PerfectGift/services/backend/catalog/internal/logkit"
 	catalogv1 "github.com/ilikyantigran/PerfectGift/services/backend/catalog/pkg/api/catalog/v1"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -91,7 +92,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("grpc listener: %w", err)
 	}
-	a.grpcServer = grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	a.grpcServer = grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.ChainUnaryInterceptor(logkit.UnaryServerInterceptor()))
 	reflection.Register(a.grpcServer)
 	catalogv1.RegisterCatalogServiceServer(a.grpcServer, srv)
 

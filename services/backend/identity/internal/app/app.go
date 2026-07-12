@@ -14,6 +14,7 @@ import (
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/infra/config"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/infra/docs"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/infra/telemetry"
+	logkit "github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/logkit"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/oauth"
 	"github.com/ilikyantigran/PerfectGift/services/backend/identity/internal/token"
 	identityv1 "github.com/ilikyantigran/PerfectGift/services/backend/identity/pkg/api/identity/v1"
@@ -100,7 +101,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("grpc listener: %w", err)
 	}
-	a.grpcServer = grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	a.grpcServer = grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.ChainUnaryInterceptor(logkit.UnaryServerInterceptor()))
 	reflection.Register(a.grpcServer)
 	identityv1.RegisterIdentityServiceServer(a.grpcServer, srv)
 

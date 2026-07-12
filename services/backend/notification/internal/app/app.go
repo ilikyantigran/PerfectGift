@@ -14,6 +14,7 @@ import (
 	"github.com/ilikyantigran/PerfectGift/services/backend/notification/internal/infra/config"
 	"github.com/ilikyantigran/PerfectGift/services/backend/notification/internal/infra/docs"
 	"github.com/ilikyantigran/PerfectGift/services/backend/notification/internal/infra/telemetry"
+	logkit "github.com/ilikyantigran/PerfectGift/services/backend/notification/internal/logkit"
 	"github.com/ilikyantigran/PerfectGift/services/backend/notification/internal/notify"
 	"github.com/ilikyantigran/PerfectGift/services/backend/notification/internal/push"
 	notificationv1 "github.com/ilikyantigran/PerfectGift/services/backend/notification/pkg/api/notification/v1"
@@ -74,7 +75,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("grpc listener: %w", err)
 	}
-	a.grpcServer = grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	a.grpcServer = grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()), grpc.ChainUnaryInterceptor(logkit.UnaryServerInterceptor()))
 	reflection.Register(a.grpcServer)
 	notificationv1.RegisterNotificationServiceServer(a.grpcServer, srv)
 

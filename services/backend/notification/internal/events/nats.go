@@ -12,6 +12,9 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Bus is a JetStream connection from which durable subscriptions are built.
@@ -63,7 +66,13 @@ type subscription struct {
 // Consume creates/binds the durable consumer and delivers each message to
 // deliver until ctx is cancelled. AckExplicit means the message is redelivered
 // unless the handler acks it — the basis for the never-lost guarantee.
-func (s *subscription) Consume(ctx context.Context, deliver func(notify.Message)) error {
+//
+// Each delivery extracts the W3C trace context carried in the message headers
+// (injected by the producing service, e.g. surprise's PublishIdeasReady) and
+// starts a consumer span from it, so deliver — and everything it does — stays
+// linked to the request that produced the event instead of running under a
+// fresh, span-less context.
+func (s *subscription) Consume(ctx context.Context, deliver func(context.Context, notify.Message)) error {
 	cons, err := s.bus.js.CreateOrUpdateConsumer(ctx, s.bus.stream, jetstream.ConsumerConfig{
 		Durable:       s.durable,
 		FilterSubject: s.subject,
@@ -74,7 +83,12 @@ func (s *subscription) Consume(ctx context.Context, deliver func(notify.Message)
 	}
 
 	cc, err := cons.Consume(func(m jetstream.Msg) {
-		deliver(&message{m: m})
+		// Extract into the live ctx (not context.Background()) so deliver keeps the
+		// app's cancellation while staying parented to the producer's remote span.
+		mctx := otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(m.Headers()))
+		mctx, span := otel.Tracer("nats").Start(mctx, "consume "+s.subject, trace.WithSpanKind(trace.SpanKindConsumer))
+		defer span.End()
+		deliver(mctx, &message{m: m})
 	})
 	if err != nil {
 		return fmt.Errorf("consume %q: %w", s.durable, err)

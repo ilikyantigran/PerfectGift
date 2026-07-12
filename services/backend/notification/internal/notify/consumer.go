@@ -24,9 +24,13 @@ type MessageHandler func(ctx context.Context, data []byte) error
 
 // Subscription is a durable JetStream consumer. Consume blocks, handing each
 // message to deliver until ctx is cancelled. The real adapter lives in
-// internal/events.
+// internal/events. deliver receives a per-message context: the production
+// adapter extracts the W3C trace context carried in the NATS message headers
+// (injected by the producing service) and starts a consumer span from it, so
+// the handler stays linked to the request that produced the event instead of
+// running under the long-lived subscription context.
 type Subscription interface {
-	Consume(ctx context.Context, deliver func(Message)) error
+	Consume(ctx context.Context, deliver func(context.Context, Message)) error
 }
 
 // Consumer turns bus events into outbox rows. It is deliberately thin: decode →
@@ -96,8 +100,10 @@ func Process(ctx context.Context, msg Message, handler MessageHandler) {
 }
 
 // Run consumes sub, processing every message with handler until ctx is done.
+// Each message is processed under the per-message context handed back by
+// Consume (trace-linked to its producer), not the long-lived ctx passed in here.
 func Run(ctx context.Context, sub Subscription, handler MessageHandler) error {
-	return sub.Consume(ctx, func(msg Message) {
-		Process(ctx, msg, handler)
+	return sub.Consume(ctx, func(mctx context.Context, msg Message) {
+		Process(mctx, msg, handler)
 	})
 }

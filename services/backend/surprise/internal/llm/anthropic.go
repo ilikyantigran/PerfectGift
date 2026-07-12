@@ -145,17 +145,28 @@ func (in *emitIdeasInput) UnmarshalJSON(data []byte) error {
 // the original array-decode error is returned since it best describes the
 // expected shape.
 func decodeIdeasField(raw json.RawMessage) ([]Idea, error) {
+	// Absent ("ideas" key missing) or explicit null: no ideas, no error. Matches
+	// the pre-tolerance struct-tag behavior and avoids a misleading "unexpected end
+	// of JSON input" from json.Unmarshal(nil, ...) on a partial tool input.
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+
 	var ideas []Idea
 	arrErr := json.Unmarshal(raw, &ideas)
 	if arrErr == nil {
 		return ideas, nil
 	}
 
+	// Not a bare array — try the stringified-array case: raw is a JSON string that
+	// itself contains the array. If the unquote succeeds, the inner decode error
+	// (if any) is the actionable one, so surface it rather than the outer arrErr.
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		if err := json.Unmarshal([]byte(s), &ideas); err == nil {
-			return ideas, nil
+		if innerErr := json.Unmarshal([]byte(s), &ideas); innerErr != nil {
+			return nil, innerErr
 		}
+		return ideas, nil
 	}
 
 	return nil, arrErr

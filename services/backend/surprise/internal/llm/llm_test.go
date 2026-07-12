@@ -86,6 +86,26 @@ func TestEmitIdeasInputRejectsUnrecognizedIdeasShape(t *testing.T) {
 	}
 }
 
+// A partial tool input where "ideas" is absent or explicitly null must decode to
+// zero ideas WITHOUT an error — matching the pre-tolerance struct-tag behavior and
+// avoiding a misleading "unexpected end of JSON input" from unmarshaling nil.
+func TestEmitIdeasInputAbsentOrNullIsEmptyNoError(t *testing.T) {
+	for _, tc := range []struct{ name, in string }{
+		{"missing key", `{}`},
+		{"explicit null", `{"ideas":null}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var in emitIdeasInput
+			if err := json.Unmarshal([]byte(tc.in), &in); err != nil {
+				t.Fatalf("want no error, got %v", err)
+			}
+			if len(in.Ideas) != 0 {
+				t.Fatalf("want zero ideas, got %#v", in.Ideas)
+			}
+		})
+	}
+}
+
 func TestResilientOpensBreaker(t *testing.T) {
 	inner := &FakeClient{GenerateFunc: func(context.Context, GenerateParams) ([]Idea, error) {
 		return nil, errors.New("down")

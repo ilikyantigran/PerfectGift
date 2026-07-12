@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -138,13 +139,27 @@ func (in *emitIdeasInput) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// decodeIdeasField decodes the "ideas" field of the emit_ideas tool input. The
-// happy path is a plain JSON array. If that fails, it tries treating the raw
-// value as a JSON-encoded string and decoding the array from inside that
-// string (the stringified-array case seen in production). If neither works,
-// the original array-decode error is returned since it best describes the
-// expected shape.
+// maxIdeasDecodeDepth bounds recursive unwrapping of nested wrapper objects so a
+// pathological payload (e.g. {"ideas":{"ideas":{"ideas":...}}}) can't recurse
+// without end.
+const maxIdeasDecodeDepth = 3
+
+// decodeIdeasField decodes the "ideas" field of the emit_ideas tool input,
+// tolerating every shape the model has been observed to emit:
+//
+//	1. a plain JSON array                        [{...},{...}]           (happy path)
+//	2. a JSON-encoded string of that array       "[{...},{...}]"         (stringified)
+//	3. a wrapper object carrying the array        {"ideas":[{...}]}       (unwrap one level)
+//	4. a single idea object                       {"title":...,...}       (wrap as one element)
+//
+// The array and stringified-array paths are tried first and unchanged. If none
+// match, the original array-decode error is returned (it best describes the
+// expected shape) — and the raw payload is logged by the caller on failure.
 func decodeIdeasField(raw json.RawMessage) ([]Idea, error) {
+	return decodeIdeasFieldDepth(raw, 0)
+}
+
+func decodeIdeasFieldDepth(raw json.RawMessage, depth int) ([]Idea, error) {
 	// Absent ("ideas" key missing) or explicit null: no ideas, no error. Matches
 	// the pre-tolerance struct-tag behavior and avoids a misleading "unexpected end
 	// of JSON input" from json.Unmarshal(nil, ...) on a partial tool input.
@@ -169,7 +184,50 @@ func decodeIdeasField(raw json.RawMessage) ([]Idea, error) {
 		return ideas, nil
 	}
 
+	// Object shapes: the model has been observed returning "ideas" as a JSON
+	// object rather than an array. Two variants are handled, in order:
+	//   (a) a wrapper object carrying the array, e.g. {"ideas":[...]} — unwrap one
+	//       level and decode its inner "ideas" field (recursively, depth-bounded);
+	//   (b) a single idea object, e.g. {"title":...,"why_it_fits":...} — wrap it as
+	//       a one-element []Idea.
+	if depth < maxIdeasDecodeDepth && isJSONObject(raw) {
+		// (a) wrapper object.
+		var wrapper struct {
+			Ideas json.RawMessage `json:"ideas"`
+		}
+		if err := json.Unmarshal(raw, &wrapper); err == nil && len(wrapper.Ideas) > 0 {
+			return decodeIdeasFieldDepth(wrapper.Ideas, depth+1)
+		}
+		// (b) single idea object — only accept a non-empty idea so an unrelated
+		// empty/foreign object still falls through to the error below.
+		var single Idea
+		if err := json.Unmarshal(raw, &single); err == nil && single != (Idea{}) {
+			return []Idea{single}, nil
+		}
+	}
+
 	return nil, arrErr
+}
+
+// isJSONObject reports whether raw is a JSON object (first non-space byte is '{').
+func isJSONObject(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && trimmed[0] == '{'
+}
+
+// maxLoggedInputLen caps how many bytes of a raw tool payload are logged on a
+// decode failure, so a large model output can't flood the logs.
+const maxLoggedInputLen = 2048
+
+// truncateForLog renders raw tool-input bytes as a string for diagnostic logging,
+// truncating to maxLoggedInputLen and appending an ellipsis marker when cut. Only
+// the model's own idea output is ever passed here (no secrets/keys), but the cap
+// is applied regardless.
+func truncateForLog(b []byte) string {
+	if len(b) <= maxLoggedInputLen {
+		return string(b)
+	}
+	return string(b[:maxLoggedInputLen]) + "…(truncated)"
 }
 
 // GenerateIdeas builds a structured prompt and forces the emit_ideas tool so the
@@ -240,6 +298,10 @@ func (c *AnthropicClient) GenerateIdeas(ctx context.Context, p GenerateParams) (
 		if block.Type == "tool_use" && block.Name == "emit_ideas" {
 			var in emitIdeasInput
 			if err := json.Unmarshal(block.Input, &in); err != nil {
+				// Log the raw tool payload (truncated) so the actual shape is always
+				// diagnosable instead of guessed at from the error alone. Fires only on
+				// the failure path — never on success.
+				slog.WarnContext(ctx, "emit_ideas decode failed", "raw", truncateForLog(block.Input), "error", err)
 				return nil, fmt.Errorf("decode tool input: %w", err)
 			}
 			return in.Ideas, nil

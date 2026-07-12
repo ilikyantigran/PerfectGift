@@ -5,6 +5,9 @@ import (
 	"fmt"
 
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // NATSConfig configures the JetStream producer/consumer.
@@ -57,35 +60,46 @@ func (b *NATSBus) Close() {
 	}
 }
 
-func (b *NATSBus) PublishGenerationRequested(_ context.Context, job GenerationRequested) error {
+func (b *NATSBus) PublishGenerationRequested(ctx context.Context, job GenerationRequested) error {
 	data, err := marshal(job)
 	if err != nil {
 		return err
 	}
-	_, err = b.js.Publish(b.cfg.RequestSubject, data)
+	msg := &nats.Msg{Subject: b.cfg.RequestSubject, Data: data, Header: nats.Header{}}
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(msg.Header))
+	_, err = b.js.PublishMsg(msg)
 	return err
 }
 
-func (b *NATSBus) PublishIdeasReady(_ context.Context, evt IdeasReady) error {
+func (b *NATSBus) PublishIdeasReady(ctx context.Context, evt IdeasReady) error {
 	data, err := marshal(evt)
 	if err != nil {
 		return err
 	}
-	_, err = b.js.Publish(b.cfg.ReadySubject, data)
+	msg := &nats.Msg{Subject: b.cfg.ReadySubject, Data: data, Header: nats.Header{}}
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(msg.Header))
+	_, err = b.js.PublishMsg(msg)
 	return err
 }
 
 // ConsumeGenerationRequested binds a durable queue subscription so the worker
 // pool pulls jobs off the request path. Messages are acked on handler success and
-// nak'd on failure for redelivery.
-func (b *NATSBus) ConsumeGenerationRequested(ctx context.Context, h Handler) error {
+// nak'd on failure for redelivery. The W3C trace context carried in the message
+// headers (injected by PublishGenerationRequested) is extracted and used to start
+// a consumer span, so the handler — and every log it emits — is linked back to the
+// request that produced the job instead of running under a fresh, span-less context.
+func (b *NATSBus) ConsumeGenerationRequested(_ context.Context, h Handler) error {
 	_, err := b.js.QueueSubscribe(b.cfg.RequestSubject, b.cfg.DurableName, func(msg *nats.Msg) {
 		var job GenerationRequested
 		if err := unmarshal(msg.Data, &job); err != nil {
 			_ = msg.Term()
 			return
 		}
-		if err := h(ctx, job); err != nil {
+		mctx := otel.GetTextMapPropagator().Extract(context.Background(), propagation.HeaderCarrier(msg.Header))
+		mctx, span := otel.Tracer("nats").Start(mctx, "consume "+b.cfg.RequestSubject, trace.WithSpanKind(trace.SpanKindConsumer))
+		err := h(mctx, job)
+		span.End()
+		if err != nil {
 			_ = msg.Nak()
 			return
 		}

@@ -2,7 +2,9 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -49,6 +51,58 @@ func TestResilientRetriesThenSucceeds(t *testing.T) {
 	}
 	if len(ideas) != 1 || calls != 2 {
 		t.Fatalf("expected 1 idea after 2 calls, got %d ideas / %d calls", len(ideas), calls)
+	}
+}
+
+func TestEmitIdeasInputToleratesStringifiedIdeas(t *testing.T) {
+	// The tool schema declares "ideas" as a JSON array (the expected/happy path).
+	arrayJSON := []byte(`{"ideas":[{"title":"Picnic","why_it_fits":"outdoorsy","rough_cost":"$50","how_to":"pack a basket"}]}`)
+	var fromArray emitIdeasInput
+	if err := json.Unmarshal(arrayJSON, &fromArray); err != nil {
+		t.Fatalf("decode array shape: %v", err)
+	}
+
+	// Production has seen Claude return "ideas" as a JSON-encoded string
+	// containing that same array instead of a nested array.
+	stringJSON := []byte(`{"ideas":"[{\"title\":\"Picnic\",\"why_it_fits\":\"outdoorsy\",\"rough_cost\":\"$50\",\"how_to\":\"pack a basket\"}]"}`)
+	var fromString emitIdeasInput
+	if err := json.Unmarshal(stringJSON, &fromString); err != nil {
+		t.Fatalf("decode stringified shape: %v", err)
+	}
+
+	if !reflect.DeepEqual(fromArray.Ideas, fromString.Ideas) {
+		t.Fatalf("expected both shapes to decode identically, got %#v vs %#v", fromArray.Ideas, fromString.Ideas)
+	}
+	if len(fromArray.Ideas) != 1 || fromArray.Ideas[0].Title != "Picnic" {
+		t.Fatalf("unexpected decoded ideas: %#v", fromArray.Ideas)
+	}
+}
+
+func TestEmitIdeasInputRejectsUnrecognizedIdeasShape(t *testing.T) {
+	badJSON := []byte(`{"ideas": 42}`)
+	var in emitIdeasInput
+	if err := json.Unmarshal(badJSON, &in); err == nil {
+		t.Fatal("expected decode error for an ideas field that is neither an array nor a stringified array")
+	}
+}
+
+// A partial tool input where "ideas" is absent or explicitly null must decode to
+// zero ideas WITHOUT an error — matching the pre-tolerance struct-tag behavior and
+// avoiding a misleading "unexpected end of JSON input" from unmarshaling nil.
+func TestEmitIdeasInputAbsentOrNullIsEmptyNoError(t *testing.T) {
+	for _, tc := range []struct{ name, in string }{
+		{"missing key", `{}`},
+		{"explicit null", `{"ideas":null}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var in emitIdeasInput
+			if err := json.Unmarshal([]byte(tc.in), &in); err != nil {
+				t.Fatalf("want no error, got %v", err)
+			}
+			if len(in.Ideas) != 0 {
+				t.Fatalf("want zero ideas, got %#v", in.Ideas)
+			}
+		})
 	}
 }
 

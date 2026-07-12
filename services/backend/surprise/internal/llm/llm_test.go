@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,30 @@ func TestEmitIdeasInputToleratesStringifiedIdeas(t *testing.T) {
 	}
 }
 
+func TestEmitIdeasInputToleratesObjectShapes(t *testing.T) {
+	// (a) Wrapper object: "ideas" arrives as an object that itself carries the
+	// ideas array — {"ideas":{"ideas":[...]}} at the tool-input level.
+	wrapperJSON := []byte(`{"ideas":{"ideas":[{"title":"Picnic","why_it_fits":"outdoorsy","rough_cost":"$50","how_to":"pack a basket"}]}}`)
+	var fromWrapper emitIdeasInput
+	if err := json.Unmarshal(wrapperJSON, &fromWrapper); err != nil {
+		t.Fatalf("decode wrapper-object shape: %v", err)
+	}
+	if len(fromWrapper.Ideas) != 1 || fromWrapper.Ideas[0].Title != "Picnic" {
+		t.Fatalf("unexpected decoded ideas from wrapper object: %#v", fromWrapper.Ideas)
+	}
+
+	// (b) Single idea object: "ideas" arrives as one idea object rather than an
+	// array — {"ideas":{"title":...,...}}.
+	singleJSON := []byte(`{"ideas":{"title":"Stargazing","why_it_fits":"loves the night sky","rough_cost":"$0","how_to":"drive out of town"}}`)
+	var fromSingle emitIdeasInput
+	if err := json.Unmarshal(singleJSON, &fromSingle); err != nil {
+		t.Fatalf("decode single-idea-object shape: %v", err)
+	}
+	if len(fromSingle.Ideas) != 1 || fromSingle.Ideas[0].Title != "Stargazing" || fromSingle.Ideas[0].WhyItFits == "" {
+		t.Fatalf("unexpected decoded ideas from single object: %#v", fromSingle.Ideas)
+	}
+}
+
 func TestEmitIdeasInputRejectsUnrecognizedIdeasShape(t *testing.T) {
 	badJSON := []byte(`{"ideas": 42}`)
 	var in emitIdeasInput
@@ -122,5 +147,24 @@ func TestResilientOpensBreaker(t *testing.T) {
 	_, err := r.GenerateIdeas(context.Background(), GenerateParams{})
 	if !errors.Is(err, resilience.ErrOpen) {
 		t.Fatalf("expected ErrOpen, got %v", err)
+	}
+}
+
+func TestDescribeIdeasShapeIsPIIFree(t *testing.T) {
+	cases := map[string]string{
+		`{"ideas":[{"title":"x"}]}`:                    "array[len=1, elem=object]",
+		`{"ideas":{"title":"x","why_it_fits":"y"}}`:    "object{keys=[title why_it_fits]}",
+		`{"ideas":{"ideas":[{"title":"x"}]}}`:          "object{keys=[ideas]}",
+		`{"ideas":"[{\"title\":\"x\"}]"}`:              "string(len=21)",
+		`{"foo":1}`:                                    "no 'ideas' key; input=object{keys=[foo]}",
+	}
+	for in, want := range cases {
+		if got := describeIdeasShape([]byte(in)); got != want {
+			t.Errorf("describeIdeasShape(%s) = %q, want %q", in, got, want)
+		}
+		// Guard: the summary must never leak an idea value.
+		if strings.Contains(describeIdeasShape([]byte(in)), "\"x\"") {
+			t.Errorf("shape summary leaked content for %s", in)
+		}
 	}
 }

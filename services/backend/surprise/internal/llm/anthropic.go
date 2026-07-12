@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -138,13 +140,27 @@ func (in *emitIdeasInput) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// decodeIdeasField decodes the "ideas" field of the emit_ideas tool input. The
-// happy path is a plain JSON array. If that fails, it tries treating the raw
-// value as a JSON-encoded string and decoding the array from inside that
-// string (the stringified-array case seen in production). If neither works,
-// the original array-decode error is returned since it best describes the
-// expected shape.
+// maxIdeasDecodeDepth bounds recursive unwrapping of nested wrapper objects so a
+// pathological payload (e.g. {"ideas":{"ideas":{"ideas":...}}}) can't recurse
+// without end.
+const maxIdeasDecodeDepth = 3
+
+// decodeIdeasField decodes the "ideas" field of the emit_ideas tool input,
+// tolerating every shape the model has been observed to emit:
+//
+//	1. a plain JSON array                        [{...},{...}]           (happy path)
+//	2. a JSON-encoded string of that array       "[{...},{...}]"         (stringified)
+//	3. a wrapper object carrying the array        {"ideas":[{...}]}       (unwrap one level)
+//	4. a single idea object                       {"title":...,...}       (wrap as one element)
+//
+// The array and stringified-array paths are tried first and unchanged. If none
+// match, the original array-decode error is returned (it best describes the
+// expected shape) — and the raw payload is logged by the caller on failure.
 func decodeIdeasField(raw json.RawMessage) ([]Idea, error) {
+	return decodeIdeasFieldDepth(raw, 0)
+}
+
+func decodeIdeasFieldDepth(raw json.RawMessage, depth int) ([]Idea, error) {
 	// Absent ("ideas" key missing) or explicit null: no ideas, no error. Matches
 	// the pre-tolerance struct-tag behavior and avoids a misleading "unexpected end
 	// of JSON input" from json.Unmarshal(nil, ...) on a partial tool input.
@@ -169,7 +185,106 @@ func decodeIdeasField(raw json.RawMessage) ([]Idea, error) {
 		return ideas, nil
 	}
 
+	// Object shapes: the model has been observed returning "ideas" as a JSON
+	// object rather than an array. Two variants are handled, in order:
+	//   (a) a wrapper object carrying the array, e.g. {"ideas":[...]} — unwrap one
+	//       level and decode its inner "ideas" field (recursively, depth-bounded);
+	//   (b) a single idea object, e.g. {"title":...,"why_it_fits":...} — wrap it as
+	//       a one-element []Idea.
+	if depth < maxIdeasDecodeDepth && isJSONObject(raw) {
+		// (a) wrapper object.
+		var wrapper struct {
+			Ideas json.RawMessage `json:"ideas"`
+		}
+		if err := json.Unmarshal(raw, &wrapper); err == nil && len(wrapper.Ideas) > 0 {
+			return decodeIdeasFieldDepth(wrapper.Ideas, depth+1)
+		}
+		// (b) single idea object — only accept a non-empty idea so an unrelated
+		// empty/foreign object still falls through to the error below.
+		var single Idea
+		if err := json.Unmarshal(raw, &single); err == nil && single != (Idea{}) {
+			return []Idea{single}, nil
+		}
+	}
+
 	return nil, arrErr
+}
+
+// isJSONObject reports whether raw is a JSON object (first non-space byte is '{').
+func isJSONObject(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && trimmed[0] == '{'
+}
+
+// jsonKind returns the JSON kind of a raw value ("object", "array", "string",
+// "number", "bool", "null", or "empty") without inspecting its contents.
+func jsonKind(raw json.RawMessage) string {
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 {
+		return "empty"
+	}
+	switch t[0] {
+	case '{':
+		return "object"
+	case '[':
+		return "array"
+	case '"':
+		return "string"
+	case 't', 'f':
+		return "bool"
+	case 'n':
+		return "null"
+	default:
+		return "number"
+	}
+}
+
+// describeJSONShape returns a PII-free structural summary of a raw JSON value: its
+// kind, plus (for objects) the sorted top-level KEYS — never the values — and (for
+// arrays) the length and first element's kind. Safe to log: it reveals the payload
+// SHAPE needed to fix decoding without emitting any recipient/idea content.
+func describeJSONShape(raw json.RawMessage) string {
+	switch jsonKind(raw) {
+	case "object":
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return "object(unparseable)"
+		}
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return fmt.Sprintf("object{keys=%v}", keys)
+	case "array":
+		var a []json.RawMessage
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return "array(unparseable)"
+		}
+		if len(a) == 0 {
+			return "array[len=0]"
+		}
+		return fmt.Sprintf("array[len=%d, elem=%s]", len(a), jsonKind(a[0]))
+	case "string":
+		return fmt.Sprintf("string(len=%d)", len(bytes.TrimSpace(raw)))
+	default:
+		return jsonKind(raw)
+	}
+}
+
+// describeIdeasShape summarizes the shape of the "ideas" field within a tool input
+// (or of the input itself when it isn't the expected object). PII-free — it emits
+// only kinds and structural keys, so it is safe to ship to the log aggregator.
+func describeIdeasShape(input json.RawMessage) string {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(input, &m); err != nil {
+		return "input=" + describeJSONShape(input)
+	}
+	raw, ok := m["ideas"]
+	if !ok {
+		return "no 'ideas' key; input=" + describeJSONShape(input)
+	}
+	return describeJSONShape(raw)
 }
 
 // GenerateIdeas builds a structured prompt and forces the emit_ideas tool so the
@@ -240,6 +355,10 @@ func (c *AnthropicClient) GenerateIdeas(ctx context.Context, p GenerateParams) (
 		if block.Type == "tool_use" && block.Name == "emit_ideas" {
 			var in emitIdeasInput
 			if err := json.Unmarshal(block.Input, &in); err != nil {
+				// Log the PII-free SHAPE of the payload (kinds + structural keys, never
+				// idea content) so the actual shape is diagnosable instead of guessed at
+				// from the error alone. Fires only on the failure path — never on success.
+				slog.WarnContext(ctx, "emit_ideas decode failed", "ideas_shape", describeIdeasShape(block.Input), "error", err)
 				return nil, fmt.Errorf("decode tool input: %w", err)
 			}
 			return in.Ideas, nil

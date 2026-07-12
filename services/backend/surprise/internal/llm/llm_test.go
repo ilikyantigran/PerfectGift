@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,5 +147,24 @@ func TestResilientOpensBreaker(t *testing.T) {
 	_, err := r.GenerateIdeas(context.Background(), GenerateParams{})
 	if !errors.Is(err, resilience.ErrOpen) {
 		t.Fatalf("expected ErrOpen, got %v", err)
+	}
+}
+
+func TestDescribeIdeasShapeIsPIIFree(t *testing.T) {
+	cases := map[string]string{
+		`{"ideas":[{"title":"x"}]}`:                    "array[len=1, elem=object]",
+		`{"ideas":{"title":"x","why_it_fits":"y"}}`:    "object{keys=[title why_it_fits]}",
+		`{"ideas":{"ideas":[{"title":"x"}]}}`:          "object{keys=[ideas]}",
+		`{"ideas":"[{\"title\":\"x\"}]"}`:              "string(len=21)",
+		`{"foo":1}`:                                    "no 'ideas' key; input=object{keys=[foo]}",
+	}
+	for in, want := range cases {
+		if got := describeIdeasShape([]byte(in)); got != want {
+			t.Errorf("describeIdeasShape(%s) = %q, want %q", in, got, want)
+		}
+		// Guard: the summary must never leak an idea value.
+		if strings.Contains(describeIdeasShape([]byte(in)), "\"x\"") {
+			t.Errorf("shape summary leaked content for %s", in)
+		}
 	}
 }

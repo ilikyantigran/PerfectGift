@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -215,19 +216,75 @@ func isJSONObject(raw json.RawMessage) bool {
 	return len(trimmed) > 0 && trimmed[0] == '{'
 }
 
-// maxLoggedInputLen caps how many bytes of a raw tool payload are logged on a
-// decode failure, so a large model output can't flood the logs.
-const maxLoggedInputLen = 2048
-
-// truncateForLog renders raw tool-input bytes as a string for diagnostic logging,
-// truncating to maxLoggedInputLen and appending an ellipsis marker when cut. Only
-// the model's own idea output is ever passed here (no secrets/keys), but the cap
-// is applied regardless.
-func truncateForLog(b []byte) string {
-	if len(b) <= maxLoggedInputLen {
-		return string(b)
+// jsonKind returns the JSON kind of a raw value ("object", "array", "string",
+// "number", "bool", "null", or "empty") without inspecting its contents.
+func jsonKind(raw json.RawMessage) string {
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 {
+		return "empty"
 	}
-	return string(b[:maxLoggedInputLen]) + "…(truncated)"
+	switch t[0] {
+	case '{':
+		return "object"
+	case '[':
+		return "array"
+	case '"':
+		return "string"
+	case 't', 'f':
+		return "bool"
+	case 'n':
+		return "null"
+	default:
+		return "number"
+	}
+}
+
+// describeJSONShape returns a PII-free structural summary of a raw JSON value: its
+// kind, plus (for objects) the sorted top-level KEYS — never the values — and (for
+// arrays) the length and first element's kind. Safe to log: it reveals the payload
+// SHAPE needed to fix decoding without emitting any recipient/idea content.
+func describeJSONShape(raw json.RawMessage) string {
+	switch jsonKind(raw) {
+	case "object":
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return "object(unparseable)"
+		}
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return fmt.Sprintf("object{keys=%v}", keys)
+	case "array":
+		var a []json.RawMessage
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return "array(unparseable)"
+		}
+		if len(a) == 0 {
+			return "array[len=0]"
+		}
+		return fmt.Sprintf("array[len=%d, elem=%s]", len(a), jsonKind(a[0]))
+	case "string":
+		return fmt.Sprintf("string(len=%d)", len(bytes.TrimSpace(raw)))
+	default:
+		return jsonKind(raw)
+	}
+}
+
+// describeIdeasShape summarizes the shape of the "ideas" field within a tool input
+// (or of the input itself when it isn't the expected object). PII-free — it emits
+// only kinds and structural keys, so it is safe to ship to the log aggregator.
+func describeIdeasShape(input json.RawMessage) string {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(input, &m); err != nil {
+		return "input=" + describeJSONShape(input)
+	}
+	raw, ok := m["ideas"]
+	if !ok {
+		return "no 'ideas' key; input=" + describeJSONShape(input)
+	}
+	return describeJSONShape(raw)
 }
 
 // GenerateIdeas builds a structured prompt and forces the emit_ideas tool so the
@@ -298,10 +355,10 @@ func (c *AnthropicClient) GenerateIdeas(ctx context.Context, p GenerateParams) (
 		if block.Type == "tool_use" && block.Name == "emit_ideas" {
 			var in emitIdeasInput
 			if err := json.Unmarshal(block.Input, &in); err != nil {
-				// Log the raw tool payload (truncated) so the actual shape is always
-				// diagnosable instead of guessed at from the error alone. Fires only on
-				// the failure path — never on success.
-				slog.WarnContext(ctx, "emit_ideas decode failed", "raw", truncateForLog(block.Input), "error", err)
+				// Log the PII-free SHAPE of the payload (kinds + structural keys, never
+				// idea content) so the actual shape is diagnosable instead of guessed at
+				// from the error alone. Fires only on the failure path — never on success.
+				slog.WarnContext(ctx, "emit_ideas decode failed", "ideas_shape", describeIdeasShape(block.Input), "error", err)
 				return nil, fmt.Errorf("decode tool input: %w", err)
 			}
 			return in.Ideas, nil

@@ -25,7 +25,7 @@ func NewWorker(consumer events.Consumer, pipe *Pipeline) *Worker {
 func (w *Worker) Start(ctx context.Context) error {
 	return w.consumer.ConsumeGenerationRequested(ctx, func(ctx context.Context, job events.GenerationRequested) error {
 		if err := w.pipe.Run(ctx, job); err != nil {
-			slog.Error("pipeline run failed", "request_id", job.RequestID, "err", err)
+			slog.ErrorContext(ctx, "pipeline run failed", "request_id", job.RequestID, "err", err)
 			return err
 		}
 		return nil

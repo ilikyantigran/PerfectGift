@@ -38,10 +38,12 @@ func (f fakeVerifier) Verify(context.Context, string) (*auth.Claims, error) {
 // --- Identity ---
 
 type fakeIdentity struct {
-	signIn  func(*identityv1.SignInRequest) (*identityv1.SignInResponse, error)
-	refresh func(*identityv1.RefreshTokenRequest) (*identityv1.RefreshTokenResponse, error)
-	revoke  func(*identityv1.RevokeRequest) (*identityv1.RevokeResponse, error)
-	getMe   func(*identityv1.GetMeRequest) (*identityv1.GetMeResponse, error)
+	signIn        func(*identityv1.SignInRequest) (*identityv1.SignInResponse, error)
+	refresh       func(*identityv1.RefreshTokenRequest) (*identityv1.RefreshTokenResponse, error)
+	revoke        func(*identityv1.RevokeRequest) (*identityv1.RevokeResponse, error)
+	getMe         func(context.Context, *identityv1.GetMeRequest) (*identityv1.GetMeResponse, error)
+	validateToken func(*identityv1.ValidateTokenRequest) (*identityv1.ValidateTokenResponse, error)
+	getJWKS       func(*identityv1.GetJWKSRequest) (*identityv1.GetJWKSResponse, error)
 }
 
 func (f *fakeIdentity) SignIn(_ context.Context, in *identityv1.SignInRequest, _ ...grpc.CallOption) (*identityv1.SignInResponse, error) {
@@ -62,27 +64,39 @@ func (f *fakeIdentity) Revoke(_ context.Context, in *identityv1.RevokeRequest, _
 	}
 	return f.revoke(in)
 }
-func (f *fakeIdentity) GetMe(_ context.Context, in *identityv1.GetMeRequest, _ ...grpc.CallOption) (*identityv1.GetMeResponse, error) {
+func (f *fakeIdentity) GetMe(ctx context.Context, in *identityv1.GetMeRequest, _ ...grpc.CallOption) (*identityv1.GetMeResponse, error) {
 	if f.getMe == nil {
 		return nil, errNotStubbed
 	}
-	return f.getMe(in)
+	return f.getMe(ctx, in)
+}
+func (f *fakeIdentity) ValidateToken(_ context.Context, in *identityv1.ValidateTokenRequest, _ ...grpc.CallOption) (*identityv1.ValidateTokenResponse, error) {
+	if f.validateToken == nil {
+		return nil, errNotStubbed
+	}
+	return f.validateToken(in)
+}
+func (f *fakeIdentity) GetJWKS(_ context.Context, in *identityv1.GetJWKSRequest, _ ...grpc.CallOption) (*identityv1.GetJWKSResponse, error) {
+	if f.getJWKS == nil {
+		return nil, errNotStubbed
+	}
+	return f.getJWKS(in)
 }
 
 // --- Poll ---
 
 type fakePoll struct {
-	createPoll     func(*pollv1.CreatePollRequest) (*pollv1.CreatePollResponse, error)
+	createPoll     func(context.Context, *pollv1.CreatePollRequest) (*pollv1.CreatePollResponse, error)
 	getPollByToken func(*pollv1.GetPollByTokenRequest) (*pollv1.GetPollByTokenResponse, error)
 	submitResponse func(*pollv1.SubmitResponseRequest) (*pollv1.SubmitResponseResponse, error)
 	getResponses   func(*pollv1.GetResponsesRequest) (*pollv1.GetResponsesResponse, error)
 }
 
-func (f *fakePoll) CreatePoll(_ context.Context, in *pollv1.CreatePollRequest, _ ...grpc.CallOption) (*pollv1.CreatePollResponse, error) {
+func (f *fakePoll) CreatePoll(ctx context.Context, in *pollv1.CreatePollRequest, _ ...grpc.CallOption) (*pollv1.CreatePollResponse, error) {
 	if f.createPoll == nil {
 		return nil, errNotStubbed
 	}
-	return f.createPoll(in)
+	return f.createPoll(ctx, in)
 }
 func (f *fakePoll) GetPollByToken(_ context.Context, in *pollv1.GetPollByTokenRequest, _ ...grpc.CallOption) (*pollv1.GetPollByTokenResponse, error) {
 	if f.getPollByToken == nil {
@@ -147,8 +161,10 @@ func (f *fakeSurprise) SaveIdea(_ context.Context, in *surprisev1.SaveIdeaReques
 // --- Catalog ---
 
 type fakeCatalog struct {
-	listHolidays  func(*catalogv1.ListHolidaysRequest) (*catalogv1.ListHolidaysResponse, error)
-	getCategories func(*catalogv1.GetCategoriesRequest) (*catalogv1.GetCategoriesResponse, error)
+	listHolidays      func(*catalogv1.ListHolidaysRequest) (*catalogv1.ListHolidaysResponse, error)
+	getCategories     func(*catalogv1.GetCategoriesRequest) (*catalogv1.GetCategoriesResponse, error)
+	searchInspiration func(*catalogv1.SearchInspirationRequest) (*catalogv1.SearchInspirationResponse, error)
+	upsertInspiration func(*catalogv1.UpsertInspirationRequest) (*catalogv1.UpsertInspirationResponse, error)
 }
 
 func (f *fakeCatalog) ListHolidays(_ context.Context, in *catalogv1.ListHolidaysRequest, _ ...grpc.CallOption) (*catalogv1.ListHolidaysResponse, error) {
@@ -163,11 +179,24 @@ func (f *fakeCatalog) GetCategories(_ context.Context, in *catalogv1.GetCategori
 	}
 	return f.getCategories(in)
 }
+func (f *fakeCatalog) SearchInspiration(_ context.Context, in *catalogv1.SearchInspirationRequest, _ ...grpc.CallOption) (*catalogv1.SearchInspirationResponse, error) {
+	if f.searchInspiration == nil {
+		return nil, errNotStubbed
+	}
+	return f.searchInspiration(in)
+}
+func (f *fakeCatalog) UpsertInspiration(_ context.Context, in *catalogv1.UpsertInspirationRequest, _ ...grpc.CallOption) (*catalogv1.UpsertInspirationResponse, error) {
+	if f.upsertInspiration == nil {
+		return nil, errNotStubbed
+	}
+	return f.upsertInspiration(in)
+}
 
 // --- Notification ---
 
 type fakeNotification struct {
-	registerDevice func(*notificationv1.RegisterDeviceRequest) (*notificationv1.RegisterDeviceResponse, error)
+	registerDevice   func(*notificationv1.RegisterDeviceRequest) (*notificationv1.RegisterDeviceResponse, error)
+	unregisterDevice func(*notificationv1.UnregisterDeviceRequest) (*notificationv1.UnregisterDeviceResponse, error)
 }
 
 func (f *fakeNotification) RegisterDevice(_ context.Context, in *notificationv1.RegisterDeviceRequest, _ ...grpc.CallOption) (*notificationv1.RegisterDeviceResponse, error) {
@@ -175,6 +204,12 @@ func (f *fakeNotification) RegisterDevice(_ context.Context, in *notificationv1.
 		return nil, errNotStubbed
 	}
 	return f.registerDevice(in)
+}
+func (f *fakeNotification) UnregisterDevice(_ context.Context, in *notificationv1.UnregisterDeviceRequest, _ ...grpc.CallOption) (*notificationv1.UnregisterDeviceResponse, error) {
+	if f.unregisterDevice == nil {
+		return nil, errNotStubbed
+	}
+	return f.unregisterDevice(in)
 }
 
 // compile-time checks that the fakes satisfy the generated client interfaces.

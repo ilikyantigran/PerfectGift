@@ -4,6 +4,8 @@ import PerfectGiftKit
 /// Chooses the top-level screen:
 ///  - a shared poll link (universal link) always opens the Subject flow, even signed out,
 ///  - otherwise signed-in users see the main flow and signed-out users see sign-in.
+///
+/// Also establishes the app-wide Amore look: forced dark scheme and rose tint.
 struct RootView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var auth: AuthManager
@@ -14,12 +16,8 @@ struct RootView: View {
             if let token = router.pendingPollToken {
                 // Handed-over phone / deep-linked Subject poll.
                 NavigationStack {
-                    SubjectPollView(viewModel: env.makeSubjectPollViewModel(token: token))
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Close") { router.pendingPollToken = nil }
-                            }
-                        }
+                    SubjectPollView(viewModel: env.makeSubjectPollViewModel(token: token),
+                                    onClose: { router.pendingPollToken = nil })
                 }
             } else if auth.isSignedIn {
                 MainFlowView()
@@ -27,7 +25,9 @@ struct RootView: View {
                 SignInView(viewModel: env.makeSignInViewModel())
             }
         }
-        .animation(.default, value: auth.isSignedIn)
-        .animation(.default, value: router.pendingPollToken)
+        .tint(Theme.rose)
+        .preferredColorScheme(.dark)
+        .animation(.easeInOut(duration: 0.3), value: auth.isSignedIn)
+        .animation(.easeInOut(duration: 0.3), value: router.pendingPollToken)
     }
 }
